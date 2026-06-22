@@ -431,6 +431,9 @@ input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
   height: 360px;
   margin-bottom: 24px;
   cursor: pointer;
+  touch-action: manipulation;
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .flashcard {
@@ -441,6 +444,7 @@ input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
   transition: transform 0.6s cubic-bezier(0.175, 0.885, 0.32, 1.1);
   box-shadow: 0 20px 40px -10px rgba(0, 0, 0, 0.4);
   border-radius: 24px;
+  touch-action: manipulation;
 }
 
 .flashcard.flipped {
@@ -459,6 +463,8 @@ input[type="text"]:focus, input[type="number"]:focus, textarea:focus {
   display: flex;
   flex-direction: column;
   border: 1px solid var(--border-color);
+  user-select: none;
+  -webkit-user-select: none;
 }
 
 .card-front {
@@ -1433,4 +1439,150 @@ rt {
   width: 16px;
   height: 16px;
 }
+
+/* ========================================================
+   9. Recommendation Card & Mode Switcher Styling
+   ======================================================== */
+.recommend-card {
+  padding: 20px;
+  margin-top: 15px;
+  margin-bottom: 24px;
+  border-radius: 20px;
+  animation: slide-up 0.4s ease;
+  position: relative;
+}
+
+.recommend-card-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.recommend-tag {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: var(--color-primary);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  border-radius: 50%;
+  transition: all 0.2s ease;
+}
+
+.icon-btn:hover {
+  color: var(--color-primary);
+  background-color: rgba(99, 102, 241, 0.08);
+  transform: rotate(180deg);
+}
+
+.icon-btn i {
+  width: 16px;
+  height: 16px;
+}
+
+.recommend-card-body {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.recommend-word-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.recommend-word-display {
+  font-size: 2.2rem;
+  font-weight: 800;
+  font-family: var(--font-japanese);
+  color: #fff;
+  text-shadow: 0 4px 15px rgba(99, 102, 241, 0.2);
+}
+
+body.light-theme .recommend-word-display {
+  color: #0f172a;
+}
+
+.recommend-meaning {
+  font-size: 1.05rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  padding: 8px 12px;
+  background-color: rgba(99, 102, 241, 0.05);
+  border-left: 3px solid var(--color-primary);
+  border-radius: 8px;
+}
+
+.recommend-example-section {
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+}
+
+body.light-theme .recommend-example-section {
+  border-top-color: rgba(15, 23, 42, 0.05);
+}
+
+.recommend-ex-jp {
+  font-family: var(--font-japanese);
+  font-size: 0.85rem;
+  color: var(--text-primary);
+  margin-bottom: 2px;
+}
+
+.recommend-ex-ko {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+}
+
+/* Study Mode Selector in Option Bar */
+.mode-selector {
+  display: flex;
+  background-color: rgba(15, 23, 42, 0.3);
+  border: 1px solid var(--border-color);
+  border-radius: 8px;
+  padding: 2px;
+  gap: 2px;
+}
+
+body.light-theme .mode-selector {
+  background-color: rgba(15, 23, 42, 0.05);
+}
+
+.mode-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  padding: 6px 12px;
+  font-size: 0.75rem;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.mode-btn.active {
+  background-color: var(--color-primary);
+  color: #fff;
+}
+
+/* 11. Statistical Teal Theme Additions */
+.border-teal { border-color: rgba(13, 148, 136, 0.25); }
+.text-teal { color: #2dd4bf !important; }
+body.light-theme .text-teal { color: #0d9488 !important; }
 

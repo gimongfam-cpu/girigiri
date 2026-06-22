@@ -59,6 +59,31 @@
             <i data-lucide="search"></i> 검색
           </button>
         </div>
+
+        <!-- 오늘의 추천 단어 카드 영역 -->
+        <div id="recommendation-card-area" class="recommend-card bg-glass">
+          <div class="recommend-card-header">
+            <span class="recommend-tag"><i data-lucide="sparkles"></i> 기리기리 기억할 단어</span>
+            <button id="btn-refresh-recommendation" class="icon-btn" title="다른 단어 추천받기">
+              <i data-lucide="refresh-cw"></i>
+            </button>
+          </div>
+          <div class="recommend-card-body">
+            <div class="recommend-word-row">
+              <div class="recommend-word-display" id="recommend-word"></div>
+              <button class="tts-btn" id="btn-tts-recommend" title="발음 듣기">
+                <i data-lucide="volume-2"></i>
+              </button>
+            </div>
+            <div class="recommend-meaning" id="recommend-meaning"></div>
+            
+            <div id="recommend-example-area" class="recommend-example-section hidden">
+              <span class="section-title">추천 예문</span>
+              <p class="recommend-ex-jp" id="recommend-ex-jp"></p>
+              <p class="recommend-ex-ko" id="recommend-ex-ko"></p>
+            </div>
+          </div>
+        </div>
         
         <!-- Search Loading Spinner -->
         <div id="search-loading" class="spinner-container hidden">
@@ -104,12 +129,16 @@
       <!-- Screen 2: Memorization / Study Cards -->
       <section id="screen-study" class="app-screen">
         <div class="screen-header">
-          <h2>오늘의 학습 카드</h2>
-          <p>망각곡선 복습 주기가 도래한 단어들을 외웁니다.</p>
+          <h2 id="study-screen-title">오늘의 학습 카드</h2>
+          <p id="study-screen-desc">망각곡선 복습 주기가 도래한 단어들을 외웁니다.</p>
         </div>
         
         <!-- 학습 옵션 바 -->
-        <div class="study-filter-bar bg-glass" style="justify-content: flex-end;">
+        <div class="study-filter-bar bg-glass">
+          <div class="mode-selector">
+            <button id="btn-mode-normal" class="mode-btn active">오늘 복습</button>
+            <button id="btn-mode-test" class="mode-btn">랜덤 테스트</button>
+          </div>
           <div class="option-group">
             <span class="option-label"><i data-lucide="eye"></i> 후리가나</span>
             <label class="switch">
@@ -192,16 +221,16 @@
           <!-- Action Buttons (Shown after card flip) -->
           <div id="study-actions" class="study-actions-container invisible">
             <button id="btn-forgot" class="danger-btn flex-btn">
-              <i data-lucide="x-circle"></i>
-              <span>다시하기<br><small>1일 후</small></span>
+              <i data-lucide="help-circle"></i>
+              <span>처음본다<br><small>1일 후 복습</small></span>
             </button>
             <button id="btn-good" class="primary-btn flex-btn">
-              <i data-lucide="check-circle-2"></i>
-              <span>알겠음<br><small>주기 연장</small></span>
+              <i data-lucide="book-open"></i>
+              <span>암기중<br><small>주기 연장</small></span>
             </button>
             <button id="btn-easy" class="success-btn flex-btn">
-              <i data-lucide="zap"></i>
-              <span>쉬움<br><small>최대 연장</small></span>
+              <i data-lucide="award"></i>
+              <span>완벽해<br><small>가끔 노출</small></span>
             </button>
           </div>
           
@@ -222,16 +251,24 @@
             <strong class="stat-value" id="stats-total">0</strong>
           </div>
           <div class="stat-card bg-glass border-indigo">
-            <span class="stat-label">암기 중 단어</span>
-            <strong class="stat-value text-indigo" id="stats-learning">0</strong>
-          </div>
-          <div class="stat-card bg-glass border-success">
-            <span class="stat-label">암기 완료 단어</span>
-            <strong class="stat-value text-success" id="stats-memorized">0</strong>
+            <span class="stat-label">처음본다 단어</span>
+            <strong class="stat-value text-indigo" id="stats-new">0</strong>
           </div>
           <div class="stat-card bg-glass border-warning">
-            <span class="stat-label">오늘의 복습 대기</span>
-            <strong class="stat-value text-warning" id="stats-due">0</strong>
+            <span class="stat-label">암기중 단어</span>
+            <strong class="stat-value text-warning" id="stats-learning">0</strong>
+          </div>
+          <div class="stat-card bg-glass border-success">
+            <span class="stat-label">완벽해 단어</span>
+            <strong class="stat-value text-success" id="stats-memorized">0</strong>
+          </div>
+          <div class="stat-card bg-glass border-danger">
+            <span class="stat-label">오늘 복습 대기</span>
+            <strong class="stat-value text-danger" id="stats-due">0</strong>
+          </div>
+          <div class="stat-card bg-glass border-teal">
+            <span class="stat-label">완벽해 평균 복습</span>
+            <strong class="stat-value text-teal" id="stats-avg-reviews">0.0회</strong>
           </div>
         </div>
         

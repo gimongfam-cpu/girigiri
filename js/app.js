@@ -4,6 +4,8 @@ let currentCardIndex = 0;
 let studySessionStats = { total: 0, reviewed: 0, correct: 0 };
 let currentSearchData = null;
 const studyMode = 'flashcard'; // Fixed to flashcard mode
+let currentStudyMode = 'normal'; // 'normal' (spaced review) or 'test' (random test)
+let currentRecommendationWord = null;
 
 // IndexedDB Globals
 const DB_NAME = 'girigiri_db';
@@ -73,6 +75,22 @@ document.addEventListener('DOMContentLoaded', () => {
       
       // Initialize Badges & General Counts
       updateHeaderBadge();
+
+      // Initialize Today's Recommendation Card
+      loadTodayRecommendation();
+
+      // Today's Recommendation Interactive Events
+      document.getElementById('btn-refresh-recommendation').addEventListener('click', (e) => {
+        e.stopPropagation();
+        loadTodayRecommendation();
+      });
+
+      document.getElementById('btn-tts-recommend').addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (currentRecommendationWord) {
+          speakJapanese(currentRecommendationWord.word);
+        }
+      });
     })
     .catch(err => {
       console.error("Failed to initialize IndexedDB:", err);
@@ -170,7 +188,8 @@ function dbAddWord(wordData) {
       repetition: 0,
       efactor: 2.5,
       next_review: todayStr,
-      status: 'learning',
+      status: 'new',
+      exposure_count: 0,
       tag: wordData.tag || null,
       created_at: new Date().toISOString(),
       examples: wordData.examples || []
@@ -234,7 +253,7 @@ function dbGetWords(dueOnly = false) {
   });
 }
 
-function dbReviewWord(wordId, score) {
+function dbReviewWord(wordId, score, isTestMode = false) {
   return new Promise((resolve, reject) => {
     const todayStr = getTodayString();
     const transaction = db.transaction(['words', 'stats'], 'readwrite');
@@ -250,53 +269,64 @@ function dbReviewWord(wordId, score) {
         return;
       }
       
-      let repetition = word.repetition || 0;
-      let interval = word.interval || 1;
-      let efactor = word.efactor || 2.5;
-      
-      // SM-2 Spaced Repetition Algorithm
-      if (score === 1) {
-        repetition = 0;
-        interval = 1;
-        efactor = Math.max(1.3, efactor - 0.2);
-      } else if (score === 4) {
-        repetition += 1;
-        if (repetition === 1) {
-          interval = 1;
-        } else if (repetition === 2) {
-          interval = 4;
-        } else {
-          interval = Math.round(interval * efactor);
-        }
-      } else if (score === 5) {
-        repetition += 1;
-        efactor = Math.min(2.8, efactor + 0.15);
-        if (repetition === 1) {
-          interval = 2;
-        } else if (repetition === 2) {
-          interval = 6;
-        } else {
-          interval = Math.round(interval * efactor * 1.2);
-        }
-      }
-      
-      interval = Math.min(365, interval);
-      
-      // Calculate next review date
-      const reviewDate = new Date();
-      reviewDate.setDate(reviewDate.getDate() + interval);
-      const nextReviewStr = `${reviewDate.getFullYear()}-${String(reviewDate.getMonth() + 1).padStart(2, '0')}-${String(reviewDate.getDate()).padStart(2, '0')}`;
-      
-      const status = interval >= 21 ? 'memorized' : 'learning';
-      
-      word.repetition = repetition;
-      word.interval = interval;
-      word.efactor = efactor;
-      word.next_review = nextReviewStr;
-      word.status = status;
-      
-      wordStore.put(word);
       updatedWord = word;
+      
+      if (!isTestMode) {
+        let repetition = word.repetition || 0;
+        let interval = word.interval || 1;
+        let efactor = word.efactor || 2.5;
+        
+        // SM-2 Spaced Repetition Algorithm
+        if (score === 1) {
+          repetition = 0;
+          interval = 1;
+          efactor = Math.max(1.3, efactor - 0.2);
+        } else if (score === 4) {
+          repetition += 1;
+          if (repetition === 1) {
+            interval = 1;
+          } else if (repetition === 2) {
+            interval = 4;
+          } else {
+            interval = Math.round(interval * efactor);
+          }
+        } else if (score === 5) {
+          repetition += 1;
+          efactor = Math.min(2.8, efactor + 0.15);
+          if (repetition === 1) {
+            interval = 2;
+          } else if (repetition === 2) {
+            interval = 6;
+          } else {
+            interval = Math.round(interval * efactor * 1.2);
+          }
+        }
+        
+        interval = Math.min(365, interval);
+        
+        // Calculate next review date
+        const reviewDate = new Date();
+        reviewDate.setDate(reviewDate.getDate() + interval);
+        const nextReviewStr = `${reviewDate.getFullYear()}-${String(reviewDate.getMonth() + 1).padStart(2, '0')}-${String(reviewDate.getDate()).padStart(2, '0')}`;
+        
+        // 단어 상태 결정: new, learning, memorized
+        let status = 'learning';
+        if (interval <= 1) {
+          status = 'new';
+        } else if (interval >= 21) {
+          status = 'memorized';
+        }
+        
+        word.repetition = repetition;
+        word.interval = interval;
+        word.efactor = efactor;
+        word.next_review = nextReviewStr;
+        word.status = status;
+        word.exposure_count = (word.exposure_count || 0) + 1; // 누적 노출 횟수 증가
+        
+        wordStore.put(word);
+        updatedWord = word;
+      }
       
       // Update stats
       getOrCreateTodayStats(transaction, todayStr)
@@ -412,16 +442,37 @@ function dbGetStats() {
     
     const todayStr = getTodayString();
     
+    let newCount = 0;
+    let memorizedExposuresSum = 0;
+    let avgReviewsToMemorized = 0;
+    
     const wordsReq = wordsStore.getAll();
     wordsReq.onsuccess = (e) => {
       const words = e.target.result;
       totalCount = words.length;
       words.forEach(w => {
-        if (w.status === 'learning') learningCount++;
-        else if (w.status === 'memorized') memorizedCount++;
+        // 단어 상태 세분화 집계
+        if (w.status === 'new') newCount++;
+        else if (w.status === 'learning') learningCount++;
+        else if (w.status === 'memorized') {
+          memorizedCount++;
+          memorizedExposuresSum += (w.exposure_count || 0);
+        } else {
+          // Fallback if status is legacy or not set
+          const intervalVal = w.interval || 1;
+          if (intervalVal <= 1) newCount++;
+          else if (intervalVal >= 21) {
+            memorizedCount++;
+            memorizedExposuresSum += (w.exposure_count || 0);
+          } else learningCount++;
+        }
         
         if (w.next_review <= todayStr) dueCount++;
       });
+      
+      if (memorizedCount > 0) {
+        avgReviewsToMemorized = memorizedExposuresSum / memorizedCount;
+      }
     };
     
     const targetReq = settingsStore.get('daily_target');
@@ -472,6 +523,7 @@ function dbGetStats() {
     transaction.oncomplete = () => {
       resolve({
         total_count: totalCount,
+        new_count: newCount,
         learning_count: learningCount,
         memorized_count: memorizedCount,
         due_count: dueCount,
@@ -479,7 +531,8 @@ function dbGetStats() {
         reviewed_today: reviewedToday,
         correct_today: correctToday,
         streak: streak,
-        history: historyList
+        history: historyList,
+        avg_reviews_to_memorized: avgReviewsToMemorized
       });
     };
     
@@ -505,15 +558,24 @@ function dbImportData(jsonData) {
     const clearReq = wordStore.clear();
     clearReq.onsuccess = () => {
       jsonData.forEach(item => {
+        const intervalVal = item.interval || 1;
+        let statusVal = item.status;
+        if (!statusVal || !['new', 'learning', 'memorized'].includes(statusVal)) {
+          if (intervalVal <= 1) statusVal = 'new';
+          else if (intervalVal >= 21) statusVal = 'memorized';
+          else statusVal = 'learning';
+        }
+        
         const wordRecord = {
           word: item.word,
           hiragana: item.hiragana,
           meaning: item.meaning,
-          interval: item.interval || 1,
+          interval: intervalVal,
           repetition: item.repetition || 0,
           efactor: item.efactor || 2.5,
           next_review: item.next_review || getTodayString(),
-          status: item.status || 'learning',
+          status: statusVal,
+          exposure_count: item.exposure_count || 0,
           tag: item.tag || null,
           created_at: item.created_at || new Date().toISOString(),
           examples: item.examples || []
@@ -543,11 +605,13 @@ function dbClearDatabase() {
 async function fetchNaverDictionaryData(word) {
   const encodedWord = encodeURIComponent(word);
   const targetUrl = `https://dict.naver.com/search.dict?dicQuery=${encodedWord}&query=${encodedWord}&target=dic&ie=utf8`;
-  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+  
+  const isApkEnv = window.location.protocol === 'file:';
+  const proxyUrl = isApkEnv ? targetUrl : `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
   
   const response = await fetch(proxyUrl);
   if (!response.ok) {
-    throw new Error('Failed to fetch from proxy');
+    throw new Error('Failed to fetch data');
   }
   const htmlContent = await response.text();
   
@@ -639,7 +703,9 @@ function parseNaverHtml(htmlContent) {
 async function fetchNaverAutocomplete(query) {
   const encodedQ = encodeURIComponent(query);
   const targetUrl = `https://ac-dict.naver.com/jako/ac?q=${encodedQ}&q_enc=utf-8&st=11&r_format=json&r_enc=utf-8&r_lt=11`;
-  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+  
+  const isApkEnv = window.location.protocol === 'file:';
+  const proxyUrl = isApkEnv ? targetUrl : `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
   
   const response = await fetch(proxyUrl);
   if (!response.ok) {
@@ -707,6 +773,58 @@ function unescapeHtml(str) {
 /* ========================================================
    GLOBAL HELPERS & RENDER UTILS
    ======================================================== */
+function loadTodayRecommendation() {
+  const area = document.getElementById('recommendation-card-area');
+  const wordEl = document.getElementById('recommend-word');
+  const meaningEl = document.getElementById('recommend-meaning');
+  const exArea = document.getElementById('recommend-example-area');
+  const exJpEl = document.getElementById('recommend-ex-jp');
+  const exKoEl = document.getElementById('recommend-ex-ko');
+  
+  dbGetWords(false) // Get all words
+    .then(words => {
+      let selectedWord = null;
+      if (words.length === 0) {
+        // Default Welcome Word
+        selectedWord = {
+          word: 'ありがとう',
+          hiragana: 'ありがとう',
+          meaning: '고맙습니다, 감사합니다',
+          examples: [
+            {
+              japanese: 'お越しいただき、ありがとうございます。',
+              korean: '와 주셔서 감사합니다.'
+            }
+          ]
+        };
+      } else {
+        // Randomly select one
+        const randIdx = Math.floor(Math.random() * words.length);
+        selectedWord = words[randIdx];
+      }
+      
+      currentRecommendationWord = selectedWord;
+      
+      // Build ruby tag
+      const rubyHTML = buildRubyTag(selectedWord.word, selectedWord.hiragana);
+      wordEl.innerHTML = rubyHTML;
+      meaningEl.innerText = selectedWord.meaning;
+      
+      if (selectedWord.examples && selectedWord.examples.length > 0) {
+        const firstEx = selectedWord.examples[0];
+        exJpEl.innerText = firstEx.japanese;
+        exKoEl.innerText = firstEx.korean;
+        exArea.classList.remove('hidden');
+      } else {
+        exArea.classList.add('hidden');
+      }
+      
+      area.classList.remove('hidden');
+    })
+    .catch(err => {
+      console.error("Failed to load today recommendation:", err);
+    });
+}
 function showToast(message, isSuccess = true) {
   const toast = document.getElementById('toast');
   toast.innerText = message;
@@ -743,7 +861,7 @@ function speakJapanese(text) {
     return;
   }
   window.speechSynthesis.cancel();
-  const cleanText = text.replace(/<[^>]*>/g, '').trim();
+  const cleanText = text.replace(/<rt>[\s\S]*?<\/rt>/gi, '').replace(/<[^>]*>/g, '').trim();
   const utterance = new SpeechSynthesisUtterance(cleanText);
   utterance.lang = 'ja-JP';
   
@@ -795,6 +913,8 @@ function setupSearchEvents() {
       return;
     }
     
+    // 검색 시작 시 추천 카드 영역 숨기기
+    document.getElementById('recommendation-card-area').classList.add('hidden');
     document.getElementById('search-result-area').classList.add('hidden');
     document.getElementById('search-loading').classList.remove('hidden');
     
@@ -846,6 +966,8 @@ function setupSearchEvents() {
     
     if (!query) {
       hideDropdown();
+      // 검색창이 비면 다시 추천 카드 보이기
+      document.getElementById('recommendation-card-area').classList.remove('hidden');
       return;
     }
     
@@ -964,6 +1086,10 @@ function setupSearchEvents() {
         document.getElementById('search-result-area').classList.add('hidden');
         currentSearchData = null;
         updateHeaderBadge();
+        
+        // 추천 카드 리프레시 및 강제 표시
+        loadTodayRecommendation();
+        document.getElementById('recommendation-card-area').classList.remove('hidden');
       })
       .catch(err => {
         showToast('단어 저장에 실패했습니다. 다시 시도해주세요.', false);
@@ -1016,6 +1142,30 @@ function setupStudyEvents() {
   document.getElementById('btn-good').addEventListener('click', () => submitReview(4));   // Good
   document.getElementById('btn-easy').addEventListener('click', () => submitReview(5));   // Easy
   
+  // Study screen mode change events
+  const btnModeNormal = document.getElementById('btn-mode-normal');
+  const btnModeTest = document.getElementById('btn-mode-test');
+  const studyTitle = document.getElementById('study-screen-title');
+  const studyDesc = document.getElementById('study-screen-desc');
+  
+  btnModeNormal.addEventListener('click', () => {
+    btnModeNormal.classList.add('active');
+    btnModeTest.classList.remove('active');
+    currentStudyMode = 'normal';
+    studyTitle.innerText = '오늘의 학습 카드';
+    studyDesc.innerText = '망각곡선 복습 주기가 도래한 단어들을 외웁니다.';
+    loadStudySession();
+  });
+  
+  btnModeTest.addEventListener('click', () => {
+    btnModeTest.classList.add('active');
+    btnModeNormal.classList.remove('active');
+    currentStudyMode = 'test';
+    studyTitle.innerText = '전체 랜덤 테스트';
+    studyDesc.innerText = '등록한 전체 단어 중 10개를 무작위로 추출하여 실력을 테스트합니다.';
+    loadStudySession();
+  });
+
   // Furigana toggle
   const furiganaToggle = document.getElementById('furigana-toggle');
   furiganaToggle.addEventListener('change', () => {
@@ -1049,9 +1199,17 @@ function loadStudySession() {
   document.getElementById('study-active-container').classList.add('hidden');
   document.getElementById('study-empty-state').classList.add('hidden');
   
-  dbGetWords(true) // Load due words only
+  const dueOnly = currentStudyMode === 'normal';
+  
+  dbGetWords(dueOnly)
     .then(data => {
-      dueWords = data;
+      if (currentStudyMode === 'test') {
+        // Shuffle and take max 10
+        dueWords = data.sort(() => 0.5 - Math.random()).slice(0, 10);
+      } else {
+        dueWords = data;
+      }
+      
       currentCardIndex = 0;
       
       studySessionStats.total = dueWords.length;
@@ -1059,6 +1217,10 @@ function loadStudySession() {
       studySessionStats.correct = 0;
       
       if (dueWords.length === 0) {
+        const emptyText = currentStudyMode === 'test' 
+          ? '단어장에 등록된 단어가 없습니다. 새로운 단어를 추가해보세요!'
+          : '복습 대기 중인 일본어 단어가 없습니다. 새로운 단어를 추가해보세요!';
+        document.querySelector('#study-empty-state p').innerText = emptyText;
         document.getElementById('study-empty-state').classList.remove('hidden');
       } else {
         document.getElementById('study-active-container').classList.remove('hidden');
@@ -1126,12 +1288,22 @@ function submitReview(score) {
     studySessionStats.correct += 1;
   }
   
-  dbReviewWord(currentWord.id, score)
+  const isTest = currentStudyMode === 'test';
+  
+  dbReviewWord(currentWord.id, score, isTest)
     .then(data => {
       if (score === 1) {
-        showToast('다시 복습 대상에 추가되었습니다.', false);
+        showToast('처음본다 상태로 학습을 다시 시작합니다.', false);
+        // 학습 루프: 틀린 단어는 큐의 맨 뒤에 다시 삽입
+        dueWords.push(currentWord);
+        studySessionStats.total += 1;
       } else {
-        showToast(`성공! 다음 복습: ${data.interval}일 후`, true);
+        if (isTest) {
+          showToast('성공! (테스트 모드는 주기가 변경되지 않습니다)', true);
+        } else {
+          const stateLabel = data.status === 'memorized' ? '완벽해' : '암기중';
+          showToast(`성공! [${stateLabel}] 상태 (다음 복습: ${data.interval}일 후)`, true);
+        }
       }
       
       currentCardIndex += 1;
@@ -1146,7 +1318,10 @@ function submitReview(score) {
           document.getElementById('study-progress-fill').style.width = `100%`;
           document.getElementById('study-progress-text').innerText = `진행도: 완료`;
           
-          showToast('오늘의 모든 단어 학습 카드를 마쳤습니다!', true);
+          const completionMsg = isTest 
+            ? '랜덤 테스트를 모두 완료했습니다!' 
+            : '오늘의 모든 단어 학습 카드를 마쳤습니다!';
+          showToast(completionMsg, true);
           loadStudySession();
         }, 500);
       }
@@ -1164,9 +1339,11 @@ function loadStatistics() {
   dbGetStats()
     .then(data => {
       document.getElementById('stats-total').innerText = data.total_count;
+      document.getElementById('stats-new').innerText = data.new_count;
       document.getElementById('stats-learning').innerText = data.learning_count;
       document.getElementById('stats-memorized').innerText = data.memorized_count;
       document.getElementById('stats-due').innerText = data.due_count;
+      document.getElementById('stats-avg-reviews').innerText = data.avg_reviews_to_memorized.toFixed(1) + '회';
       
       document.getElementById('goal-target').innerText = data.daily_target;
       document.getElementById('goal-reviewed').innerText = data.reviewed_today;
@@ -1322,6 +1499,12 @@ function setupSettingsEvents() {
       try {
         const jsonData = JSON.parse(event.target.result);
         
+        if (!Array.isArray(jsonData)) {
+          showToast('올바른 백업 형식이 아닙니다 (배열 형태 필요).', false);
+          fileInput.value = '';
+          return;
+        }
+        
         if (!confirm(`백업에서 ${jsonData.length}개의 단어를 가져오시겠습니까? 기존 단어는 모두 지워집니다.`)) {
           fileInput.value = '';
           return;
@@ -1398,11 +1581,11 @@ const ROMAJI_MAP = {
   'ja': 'じゃ', 'ju': 'じゅ', 'jo': 'じょ',
 
   'ka': 'か', 'ki': 'き', 'ku': 'く', 'ke': 'け', 'ko': 'こ',
-  'sa': 'さ', 'si': 'し', 'su': 'す', 'se': '세', 'so': 'そ',
-  'ta': 'た', 'ti': 'ち', 'tu': 'つ', 'te': 'て', 'to': '도',
+  'sa': 'さ', 'si': 'し', 'su': 'す', 'se': 'せ', 'so': 'そ',
+  'ta': 'た', 'ti': 'ち', 'tu': 'つ', 'te': 'て', 'to': 'と',
   'na': 'な', 'ni': 'に', 'nu': 'ぬ', 'ne': 'ね', 'no': 'の',
   'ha': 'は', 'hi': 'ひ', 'fu': 'ふ', 'he': 'へ', 'ho': 'ほ',
-  'ma': 'ま', 'mi': 'み', 'mu': 'む', 'me': 'め', 'mo': '모',
+  'ma': 'ま', 'mi': 'み', 'mu': 'む', 'me': 'め', 'mo': 'も',
   'ya': 'や', 'yu': 'ゆ', 'yo': 'よ',
   'ra': 'ら', 'ri': 'り', 'ru': 'る', 're': 'れ', 'ro': 'ろ',
   'wa': 'わ', 'wo': 'を',
@@ -1429,7 +1612,6 @@ function convertRomajiToHiragana(text) {
   // 2. Extra correction mapping
   const correctedMap = { 
     ...ROMAJI_MAP, 
-    'no': '의', // wait, no -> の
     'no': 'の',
     're': 'れ', 
     'ga': 'が', 
