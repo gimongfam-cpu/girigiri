@@ -1,0 +1,356 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+  <title>기리기리기억되리</title>
+  
+  <!-- PWA meta tags -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="theme-color" content="#6366f1">
+  <link rel="manifest" href="manifest.json">
+  <link rel="apple-touch-icon" href="https://img.icons8.com/neon/192/experimental-book-neon.png">
+  
+  <!-- Google Fonts -->
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@300;400;600;800&family=Noto+Sans+KR:wght@300;400;500;700&family=Noto+Sans+JP:wght@300;400;500;700&display=swap" rel="stylesheet">
+  
+  <!-- Lucide Icons -->
+  <script src="https://unpkg.com/lucide@latest"></script>
+  
+  <!-- Stylesheet -->
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body class="dark-theme">
+
+  <!-- App Shell Container -->
+  <div class="app-container">
+    
+    <!-- Top Header Bar -->
+    <header class="app-header">
+      <div class="logo-area">
+        <i data-lucide="book-marked" class="logo-icon"></i>
+        <h1>기리기리기억되리</h1>
+      </div>
+      <div class="header-badges">
+        <div class="status-badge" id="header-due-badge">오늘 복습 0</div>
+      </div>
+    </header>
+
+    <!-- Main Screens View Area -->
+    <main class="app-content">
+      
+      <!-- Screen 1: Word Input -->
+      <section id="screen-input" class="app-screen active">
+        <div class="screen-header">
+          <h2>새로운 단어 추가</h2>
+          <p>저장할 단어를 입력하세요. 사전에서 정보를 자동으로 가져옵니다.</p>
+        </div>
+        
+        <div class="search-box">
+          <div class="search-input-wrapper">
+            <input type="text" id="search-input" placeholder="예: 嬉しい, 食べる, 행복" autocomplete="off">
+            <!-- Autocomplete Suggestions Dropdown -->
+            <div id="suggestions-dropdown" class="suggestions-dropdown hidden"></div>
+          </div>
+          <button id="btn-search" class="primary-btn">
+            <i data-lucide="search"></i> 검색
+          </button>
+        </div>
+        
+        <!-- Search Loading Spinner -->
+        <div id="search-loading" class="spinner-container hidden">
+          <div class="spinner"></div>
+          <p>네이버 사전에서 단어 정보를 가져오는 중...</p>
+        </div>
+        
+        <!-- Result Editor (Shown after search) -->
+        <div id="search-result-area" class="result-card hidden">
+          <div class="card-header">
+            <h3>사전 검색 결과 편집</h3>
+            <span class="info-tag">원하는 대로 수정하여 저장할 수 있습니다.</span>
+          </div>
+          
+          <div class="form-group">
+            <label for="edit-word">단어 (한자/표기)</label>
+            <input type="text" id="edit-word" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="edit-hiragana">발음 (히라가나/요미가나)</label>
+            <input type="text" id="edit-hiragana" required>
+          </div>
+          
+          <div class="form-group">
+            <label for="edit-meaning">한국어 뜻</label>
+            <input type="text" id="edit-meaning" required>
+          </div>
+          
+          <div class="form-group">
+            <label>일본어 예문 (최대 3개)</label>
+            <div id="examples-edit-list">
+              <!-- Dynamically populated examples textboxes -->
+            </div>
+          </div>
+          
+          <button id="btn-save-word" class="success-btn full-width-btn">
+            <i data-lucide="save"></i> 단어장에 저장하기
+          </button>
+        </div>
+      </section>
+
+      <!-- Screen 2: Memorization / Study Cards -->
+      <section id="screen-study" class="app-screen">
+        <div class="screen-header">
+          <h2>오늘의 학습 카드</h2>
+          <p>망각곡선 복습 주기가 도래한 단어들을 외웁니다.</p>
+        </div>
+        
+        <!-- 학습 옵션 바 -->
+        <div class="study-filter-bar bg-glass" style="justify-content: flex-end;">
+          <div class="option-group">
+            <span class="option-label"><i data-lucide="eye"></i> 후리가나</span>
+            <label class="switch">
+              <input type="checkbox" id="furigana-toggle" checked>
+              <span class="slider round"></span>
+            </label>
+          </div>
+        </div>
+        
+        <!-- Empty State (No words due for review) -->
+        <div id="study-empty-state" class="empty-state hidden">
+          <i data-lucide="sparkles" class="empty-icon text-indigo"></i>
+          <h3>오늘 공부를 완료했습니다!</h3>
+          <p>복습 대기 중인 일본어 단어가 없습니다. 새로운 단어를 추가해보세요!</p>
+          <button class="primary-btn btn-go-input">
+            <i data-lucide="plus"></i> 단어 추가하러 가기
+          </button>
+        </div>
+        
+        <!-- Study Active Container -->
+        <div id="study-active-container" class="hidden">
+          
+          <!-- Study Progress Bar -->
+          <div class="progress-bar-container">
+            <div class="progress-bar-labels">
+              <span id="study-progress-text">진행도: 0 / 0</span>
+              <span id="study-accuracy-text">오늘의 성공: 0%</span>
+            </div>
+            <div class="progress-bar-track">
+              <div id="study-progress-fill" class="progress-bar-fill" style="width: 0%"></div>
+            </div>
+          </div>
+          
+          <!-- Flashcard 3D Card Area -->
+          <div class="flashcard-container" id="mode-flashcard-area">
+            <div id="flashcard" class="flashcard">
+              
+              <!-- Card Front -->
+              <div class="card-face card-front">
+                <span class="card-hint-text">터치하여 단어 정보 뒤집기</span>
+                <div class="card-word-container">
+                  <div class="card-word-display" id="card-front-word">嬉しい</div>
+                  <button class="tts-btn" id="btn-tts-front" title="발음 듣기">
+                    <i data-lucide="volume-2"></i>
+                  </button>
+                </div>
+                <div class="card-accent-decoration"></div>
+              </div>
+              
+              <!-- Card Back -->
+              <div class="card-face card-back">
+                <div class="card-back-header">
+                  <span class="back-hiragana" id="card-back-hiragana">うれしい</span>
+                  <div class="card-back-word-wrapper">
+                    <h3 class="back-word" id="card-back-word">嬉しい</h3>
+                    <button class="tts-btn" id="btn-tts-back" title="발음 듣기">
+                      <i data-lucide="volume-2"></i>
+                    </button>
+                  </div>
+                </div>
+                
+                <div class="card-back-body">
+                  <div class="meaning-section">
+                    <span class="section-title">한국어 뜻</span>
+                    <p class="back-meaning" id="card-back-meaning">기쁘다, 반갑다</p>
+                  </div>
+                  
+                  <div class="examples-section">
+                    <span class="section-title">예문</span>
+                    <ul class="back-examples-list" id="card-back-examples">
+                      <!-- Dynamic examples -->
+                    </ul>
+                  </div>
+                </div>
+              </div>
+              
+            </div>
+          </div>
+          
+          <!-- Action Buttons (Shown after card flip) -->
+          <div id="study-actions" class="study-actions-container invisible">
+            <button id="btn-forgot" class="danger-btn flex-btn">
+              <i data-lucide="x-circle"></i>
+              <span>다시하기<br><small>1일 후</small></span>
+            </button>
+            <button id="btn-good" class="primary-btn flex-btn">
+              <i data-lucide="check-circle-2"></i>
+              <span>알겠음<br><small>주기 연장</small></span>
+            </button>
+            <button id="btn-easy" class="success-btn flex-btn">
+              <i data-lucide="zap"></i>
+              <span>쉬움<br><small>최대 연장</small></span>
+            </button>
+          </div>
+          
+        </div>
+      </section>
+
+      <!-- Screen 3: Statistics -->
+      <section id="screen-stats" class="app-screen">
+        <div class="screen-header">
+          <h2>학습 현황 통계</h2>
+          <p>나의 학습 데이터와 암기 효율을 시각적으로 모니터링합니다.</p>
+        </div>
+        
+        <!-- Overview Dashboard Cards -->
+        <div class="stats-grid">
+          <div class="stat-card bg-glass">
+            <span class="stat-label">총 등록 단어</span>
+            <strong class="stat-value" id="stats-total">0</strong>
+          </div>
+          <div class="stat-card bg-glass border-indigo">
+            <span class="stat-label">암기 중 단어</span>
+            <strong class="stat-value text-indigo" id="stats-learning">0</strong>
+          </div>
+          <div class="stat-card bg-glass border-success">
+            <span class="stat-label">암기 완료 단어</span>
+            <strong class="stat-value text-success" id="stats-memorized">0</strong>
+          </div>
+          <div class="stat-card bg-glass border-warning">
+            <span class="stat-label">오늘의 복습 대기</span>
+            <strong class="stat-value text-warning" id="stats-due">0</strong>
+          </div>
+        </div>
+        
+        <!-- Daily Goal Ring -->
+        <div class="goal-stats-card bg-glass">
+          <h3>오늘의 목표 달성률</h3>
+          <div class="goal-container">
+            <div class="progress-ring-container">
+              <svg class="progress-ring" width="120" height="120">
+                <circle class="progress-ring-circle-bg" stroke="#1e293b" stroke-width="8" fill="transparent" r="50" cx="60" cy="60" />
+                <circle id="goal-progress-circle" class="progress-ring-circle" stroke="#6366f1" stroke-width="8" fill="transparent" r="50" cx="60" cy="60" stroke-dasharray="314.16" stroke-dashoffset="314.16" />
+              </svg>
+              <div class="goal-percentage" id="goal-percentage-text">0%</div>
+            </div>
+            <div class="goal-details">
+              <p>오늘 목표 복습량: <strong id="goal-target">0</strong>개</p>
+              <p>현재 복습한 단어: <strong id="goal-reviewed">0</strong>개</p>
+              <p class="goal-status-text" id="goal-status-desc">오늘도 힘내서 단어를 복습해볼까요?</p>
+            </div>
+          </div>
+        </div>
+        
+        <!-- Weekly History Chart -->
+        <div class="chart-card bg-glass">
+          <h3>최근 7일 학습 통계</h3>
+          <div class="bar-chart-container" id="bar-chart">
+            <!-- Dynamically generated custom bar chart -->
+          </div>
+        </div>
+      </section>
+
+      <!-- Screen 4: Settings -->
+      <section id="screen-settings" class="app-screen">
+        <div class="screen-header">
+          <h2>어플리케이션 설정</h2>
+          <p>일일 복습 목표 설정 및 전체 단어 데이터를 관리합니다.</p>
+        </div>
+        
+        <!-- General Config -->
+        <div class="settings-group bg-glass">
+          <h3>학습 및 화면 설정</h3>
+          <div class="setting-row">
+            <div class="setting-info">
+              <label for="settings-daily-target">하루 복습 목표 단어 개수</label>
+              <span class="setting-desc">매일 통계의 목표 달성률 산정에 반영됩니다.</span>
+            </div>
+            <input type="number" id="settings-daily-target" min="5" max="100" value="10">
+          </div>
+          
+          <div class="setting-row">
+            <div class="setting-info">
+              <label>테마 토글</label>
+              <span class="setting-desc">어플리케이션의 색상 테마를 전환합니다.</span>
+            </div>
+            <button id="btn-toggle-theme" class="primary-btn flex-btn-center" style="max-width: 200px;">
+              <i data-lucide="sun"></i> &nbsp; 라이트 테마 전환
+            </button>
+          </div>
+          
+          <button id="btn-save-settings" class="primary-btn flex-btn-center">
+            <i data-lucide="check"></i> 설정 저장하기
+          </button>
+        </div>
+        
+        <!-- Data Backup & Restore -->
+        <div class="settings-group bg-glass">
+          <h3>단어장 데이터 백업 및 복원</h3>
+          <p class="setting-desc">등록한 단어, 학습 내역, 복습 주기 데이터를 JSON 파일로 백업하거나 가져옵니다.</p>
+          <div class="backup-actions" style="margin-top: 15px;">
+            <button id="btn-export-data" class="primary-btn flex-btn-center">
+              <i data-lucide="download"></i> JSON 내보내기
+            </button>
+            
+            <label for="import-file-input" class="success-btn flex-btn-center cursor-pointer">
+              <i data-lucide="upload"></i> JSON 가져오기
+            </label>
+            <input type="file" id="import-file-input" class="hidden" accept=".json">
+          </div>
+        </div>
+        
+        <!-- Danger Zone -->
+        <div class="settings-group bg-glass border-danger">
+          <h3 class="text-danger">위험 구역</h3>
+          <p class="setting-desc">모든 데이터베이스 정보(단어장, 학습 이력)를 영구 삭제합니다.</p>
+          <button id="btn-clear-db" class="danger-btn flex-btn-center">
+            <i data-lucide="trash-2"></i> 데이터 초기화
+          </button>
+        </div>
+      </section>
+
+    </main>
+
+    <!-- Bottom Navigation Bar -->
+    <nav class="app-nav">
+      <button class="nav-item active" data-target="screen-input">
+        <i data-lucide="plus-circle"></i>
+        <span>입력</span>
+      </button>
+      <button class="nav-item" data-target="screen-study" id="nav-btn-study">
+        <i data-lucide="hourglass" class="due-nav-icon"></i>
+        <span>복습</span>
+        <span class="due-indicator-dot hidden" id="nav-due-indicator"></span>
+      </button>
+      <button class="nav-item" data-target="screen-stats">
+        <i data-lucide="trending-up"></i>
+        <span>통계</span>
+      </button>
+      <button class="nav-item" data-target="screen-settings">
+        <i data-lucide="settings"></i>
+        <span>설정</span>
+      </button>
+    </nav>
+    
+  </div>
+
+  <!-- Global Toast Notification -->
+  <div id="toast" class="toast hidden">단어가 단어장에 추가되었습니다.</div>
+
+  <!-- App Script -->
+  <script src="js/app.js"></script>
+</body>
+</html>
