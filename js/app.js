@@ -543,14 +543,13 @@ function dbClearDatabase() {
 async function fetchNaverDictionaryData(word) {
   const encodedWord = encodeURIComponent(word);
   const targetUrl = `https://dict.naver.com/search.dict?dicQuery=${encodedWord}&query=${encodedWord}&target=dic&ie=utf8`;
-  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
   
   const response = await fetch(proxyUrl);
   if (!response.ok) {
     throw new Error('Failed to fetch from proxy');
   }
-  const data = await response.json();
-  const htmlContent = data.contents;
+  const htmlContent = await response.text();
   
   return parseNaverHtml(htmlContent);
 }
@@ -640,14 +639,13 @@ function parseNaverHtml(htmlContent) {
 async function fetchNaverAutocomplete(query) {
   const encodedQ = encodeURIComponent(query);
   const targetUrl = `https://ac-dict.naver.com/jako/ac?q=${encodedQ}&q_enc=utf-8&st=11&r_format=json&r_enc=utf-8&r_lt=11`;
-  const proxyUrl = `https://api.allorigins.win/get?url=${encodeURIComponent(targetUrl)}`;
+  const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
   
   const response = await fetch(proxyUrl);
   if (!response.ok) {
     throw new Error('Autocomplete failed');
   }
-  const data = await response.json();
-  const resData = JSON.parse(data.contents);
+  const resData = await response.json();
   
   const items = resData.items || [];
   const suggestions = [];
