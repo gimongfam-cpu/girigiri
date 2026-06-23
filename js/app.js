@@ -1880,7 +1880,8 @@ function renderSearchResult(data) {
   const resultForm = document.getElementById('search-result-form');
   const infoTag = document.getElementById('search-result-info-tag');
   
-  if (data.isKoreanEntry) {
+  const isKorean = data.isKoreanEntry || /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(data.word || '');
+  if (isKorean) {
     warningArea.classList.remove('hidden');
     resultForm.classList.add('hidden');
     if (infoTag) infoTag.innerText = "한국어 검색 결과입니다. 일본어 단어를 등록해 주세요.";
@@ -2242,8 +2243,8 @@ function drawWeeklyChart(history) {
     const reviewedPercent = total > 0 ? (day.reviewed / maxVal) * 100 : 0;
     const newPercent = total > 0 ? (day.new / maxVal) * 100 : 0;
     
-    const dateObj = new Date(day.date);
-    const dateStr = `${String(dateObj.getMonth() + 1).padStart(2, '0')}/${String(dateObj.getDate()).padStart(2, '0')}`;
+    const parts = day.date.split('-');
+    const dateStr = parts.length >= 3 ? `${parts[1]}/${parts[2]}` : day.date;
     
     const barGroup = document.createElement('div');
     barGroup.className = 'chart-bar-group';
@@ -2433,7 +2434,7 @@ const ROMAJI_MAP = {
   'ja': 'じゃ', 'ju': 'じゅ', 'jo': 'じょ',
 
   'ka': 'か', 'ki': 'き', 'ku': 'く', 'ke': 'け', 'ko': 'こ',
-  'sa': 'さ', 'si': 'し', 'su': 'す', 'se': '세', 'so': 'そ',
+  'sa': 'さ', 'si': 'し', 'su': 'す', 'se': 'せ', 'so': 'そ',
   'ta': 'た', 'ti': 'ち', 'tu': 'つ', 'te': 'て', 'to': 'と',
   'na': 'な', 'ni': 'に', 'nu': 'ぬ', 'ne': 'ね', 'no': 'の',
   'ha': 'は', 'hi': 'ひ', 'fu': 'ふ', 'he': 'へ', 'ho': 'ほ',
