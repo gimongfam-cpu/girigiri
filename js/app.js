@@ -44,6 +44,9 @@ document.addEventListener('DOMContentLoaded', () => {
     .then(() => {
       console.log("IndexedDB Initialized Successfully.");
       
+      // Sanitize database by clearing invalid Korean entries
+      sanitizeDatabase().catch(err => console.error("Database sanitization failed:", err));
+      
       // Tab Navigation Handling
       const navItems = document.querySelectorAll('.nav-item');
       const screens = document.querySelectorAll('.app-screen');
@@ -144,6 +147,47 @@ function initIndexedDB() {
         settingsStore.put({ key: 'daily_target', value: '10' });
         settingsStore.put({ key: 'spaced_repetition_enabled', value: 'true' });
       }
+    };
+  });
+}
+
+function sanitizeDatabase() {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      resolve();
+      return;
+    }
+    const transaction = db.transaction(['words'], 'readwrite');
+    const store = transaction.objectStore('words');
+    const req = store.openCursor();
+    let deletedCount = 0;
+
+    req.onsuccess = (event) => {
+      const cursor = event.target.result;
+      if (cursor) {
+        const wordData = cursor.value;
+        const containsHangul = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(wordData.word || '');
+        if (containsHangul) {
+          console.warn("Deleting invalid Korean entry from db:", wordData.word);
+          cursor.delete();
+          deletedCount++;
+        }
+        cursor.continue();
+      } else {
+        if (deletedCount > 0) {
+          showToast(`잘못 등록된 한국어 단어 ${deletedCount}개가 정리되었습니다.`, false);
+          setTimeout(() => {
+            updateHeaderBadge();
+            loadTodayRecommendation();
+            loadTodayDueWord();
+          }, 300);
+        }
+        resolve();
+      }
+    };
+
+    req.onerror = (event) => {
+      reject(event.target.error);
     };
   });
 }
@@ -625,6 +669,34 @@ async function fetchNaverDictionaryData(word) {
   return parseNaverHtml(htmlContent);
 }
 
+function extractJapaneseWords(meanings) {
+  const words = [];
+  const jpRegex = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]/;
+  
+  meanings.forEach(m => {
+    let clean = m.replace(/^[\d\s.\-①②③④⑤⑥⑦⑧⑨⑩]+/g, '');
+    clean = clean.replace(/\([^)]*\)/g, '').replace(/\([^)]*\)/g, '');
+    clean = clean.replace(/\[[^\]]*\]/g, '');
+    clean = clean.replace(/\{[^}]*\}/g, '');
+    
+    const parts = clean.split(/[,;·，；]/);
+    parts.forEach(part => {
+      let w = part.trim();
+      w = w.replace(/[.。!！?？]+$/g, '');
+      w = w.trim();
+      
+      const containsHangul = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(w);
+      if (w && jpRegex.test(w) && !containsHangul) {
+        if (!words.includes(w)) {
+          words.push(w);
+        }
+      }
+    });
+  });
+  
+  return words.slice(0, 8);
+}
+
 function parseNaverHtml(htmlContent) {
   // Find window.__NUXT__=(function...)(...)
   const match = htmlContent.match(/window\.__NUXT__\s*=\s*([\s\S]*?)(?:<\/script>|$)/);
@@ -710,11 +782,16 @@ function parseNaverHtml(htmlContent) {
   const examples = allExamples.slice(0, 3);
   const mainMeaning = meanings.slice(0, 3).join("\n");
   
+  const isKoreanEntry = firstItem.entryLang === 'ko' || firstItem.translateLang === 'ja' || /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(cleanWord);
+  const jpSuggestions = isKoreanEntry ? extractJapaneseWords(meanings) : [];
+  
   return {
     word: cleanWord.trim(),
     hiragana: hiragana.trim(),
     meaning: mainMeaning.trim(),
-    examples: examples
+    examples: examples,
+    isKoreanEntry: isKoreanEntry,
+    japaneseSuggestions: jpSuggestions
   };
 }
 
@@ -825,7 +902,7 @@ const JLPT_N5_WORDS = [
     "meaning": "가다",
     "examples": [
       {
-        "japanese": "<ruby>図書館<rt>としょかん</rt></ruby>に<ruby>行<rt>い</rt></ruby>く。",
+        "japanese": "<ruby>図書館<rt>としょかん</rt></ruby>へ<ruby>行<rt>い</rt></ruby>く。",
         "korean": "도서관에 가다."
       }
     ]
@@ -836,7 +913,7 @@ const JLPT_N5_WORDS = [
     "meaning": "오다",
     "examples": [
       {
-        "japanese": "<ruby>友達<rt>ともだち</rt></ruby>が<ruby>家<rt>いえ</rt></ruby>に<ruby>来<rt>く</rt></ruby>る。",
+        "japanese": "<ruby>友達<rt>ともだち</rt></ruby>が<ruby>家<rt>いえ</rt></ruby>へ<ruby>来<rt>く</rt></ruby>る。",
         "korean": "친구들이 집에 오다."
       }
     ]
@@ -913,7 +990,7 @@ const JLPT_N5_WORDS = [
     "meaning": "쓰다",
     "examples": [
       {
-        "japanese": "편지를 쓰다.",
+        "japanese": "<ruby>手紙<rt>てがみ</rt></ruby>を<ruby>書<rt>か</rt></ruby>く。",
         "korean": "편지를 쓰다."
       }
     ]
@@ -924,13 +1001,13 @@ const JLPT_N5_WORDS = [
     "meaning": "사다",
     "examples": [
       {
-        "japanese": "옷을 사다.",
+        "japanese": "<ruby>服<rt>ふく</rt></ruby>を<ruby>買<rt>か</rt></ruby>う。",
         "korean": "옷을 사다."
       }
     ]
   },
   {
-    "word": "会う",
+    "word": "會う",
     "hiragana": "あう",
     "meaning": "만나다",
     "examples": [
@@ -946,7 +1023,7 @@ const JLPT_N5_WORDS = [
     "meaning": "공부하다",
     "examples": [
       {
-        "japanese": "<ruby>日本語<rt>にほんご</rt></ruby>를<ruby>勉強<rt>べんきょう</rt></ruby>する。",
+        "japanese": "<ruby>日本語<rt>にほんご</rt></ruby>を<ruby>勉強<rt>べんきょう</rt></ruby>する。",
         "korean": "일본어를 공부하다."
       }
     ]
@@ -957,18 +1034,18 @@ const JLPT_N5_WORDS = [
     "meaning": "크다",
     "examples": [
       {
-        "japanese": "큰 집.",
+        "japanese": "<ruby>大<rt>おお</rt></ruby>きい<ruby>家<rt>いえ</rt></ruby>。",
         "korean": "큰 집."
       }
     ]
   },
   {
     "word": "小さい",
-    "hiragana": "치이사이",
+    "hiragana": "ちいさい",
     "meaning": "작다",
     "examples": [
       {
-        "japanese": "작은 고양이.",
+        "japanese": "<ruby>小<rt>ちい</rt></ruby>さい<ruby>猫<rt>ねこ</rt></ruby>。",
         "korean": "작은 고양이."
       }
     ]
@@ -979,7 +1056,7 @@ const JLPT_N5_WORDS = [
     "meaning": "새롭다",
     "examples": [
       {
-        "japanese": "새 휴대폰.",
+        "japanese": "<ruby>新<rt>あたら</rt></ruby>しい<ruby>携帯<rt>けいたい</rt></ruby>。",
         "korean": "새 휴대폰."
       }
     ]
@@ -990,18 +1067,18 @@ const JLPT_N5_WORDS = [
     "meaning": "오래되다/낡다",
     "examples": [
       {
-        "japanese": "오래된 책.",
+        "japanese": "<ruby>古<rt>ふる</rt></ruby>い<ruby>本<rt>ほん</rt></ruby>。",
         "korean": "오래된 책."
       }
     ]
   },
   {
-    "word": "좋은",
-    "hiragana": "좋다",
+    "word": "良い",
+    "hiragana": "よい",
     "meaning": "좋다",
     "examples": [
       {
-        "japanese": "날씨가 좋다.",
+        "japanese": "<ruby>天気<rt>てんき</rt></ruby>が<ruby>良<rt>よ</rt></ruby>い。",
         "korean": "날씨가 좋다."
       }
     ]
@@ -1012,18 +1089,18 @@ const JLPT_N5_WORDS = [
     "meaning": "나쁘다",
     "examples": [
       {
-        "japanese": "<ruby>気分<rt>きぶん</rt></ruby>가<ruby>悪<rt>わる</rt></ruby>い。",
+        "japanese": "<ruby>気分<rt>きぶん</rt></ruby>が<ruby>悪<rt>わる</rt></ruby>い。",
         "korean": "기분이 나쁘다."
       }
     ]
   },
   {
     "word": "高い",
-    "hiragana": "타카이",
+    "hiragana": "たかい",
     "meaning": "높다/비싸다",
     "examples": [
       {
-        "japanese": "가격이 비싸다.",
+        "japanese": "<ruby>値段<rt>ねだん</rt></ruby>が<ruby>高<rt>たか</rt></ruby>い。",
         "korean": "가격이 비싸다."
       }
     ]
@@ -1041,11 +1118,11 @@ const JLPT_N5_WORDS = [
   },
   {
     "word": "暑い",
-    "hiragana": "아츠이",
+    "hiragana": "あつい",
     "meaning": "덥다",
     "examples": [
       {
-        "japanese": "오늘은 꽤 덥다.",
+        "japanese": "<ruby>今日<rt>きょう</rt></ruby>はとても<ruby>暑<rt>あつ</rt></ruby>い。",
         "korean": "오늘은 꽤 덥다."
       }
     ]
@@ -1063,11 +1140,11 @@ const JLPT_N5_WORDS = [
   },
   {
     "word": "難しい",
-    "hiragana": "무즈카시이",
+    "hiragana": "むずかしい",
     "meaning": "어렵다",
     "examples": [
       {
-        "japanese": "시험은 어렵다.",
+        "japanese": "<ruby>試験<rt>しけん</rt></ruby>は<ruby>難<rt>むずか</rt></ruby>しい。",
         "korean": "시험은 어렵다."
       }
     ]
@@ -1089,7 +1166,7 @@ const JLPT_N5_WORDS = [
     "meaning": "친구",
     "examples": [
       {
-        "japanese": "<ruby>私<rt>わたし</rt></ruby>たちは<ruby>友達<rt>ともだち</rt></ruby>다。",
+        "japanese": "<ruby>私<rt>わたし</rt></ruby>たちは<ruby>友達<rt>ともだち</rt></ruby>だ。",
         "korean": "우리는 친구다."
       }
     ]
@@ -1112,7 +1189,7 @@ const JLPT_N5_WORDS = [
     "examples": [
       {
         "japanese": "<ruby>私<rt>わたし</rt></ruby>は<ruby>学生<rt>がくせい</rt></ruby>です。",
-        "korean": "저 학생입니다."
+        "korean": "저는 학생입니다."
       }
     ]
   },
@@ -1122,7 +1199,7 @@ const JLPT_N5_WORDS = [
     "meaning": "학교",
     "examples": [
       {
-        "japanese": "<ruby>学校<rt>がっこう</rt></ruby>に<ruby>行<rt>い</rt></ruby>く。",
+        "japanese": "<ruby>学校<rt>がっこう</rt></ruby>へ<ruby>行<rt>い</rt></ruby>く。",
         "korean": "학교에 가다."
       }
     ]
@@ -1133,7 +1210,7 @@ const JLPT_N5_WORDS = [
     "meaning": "일본",
     "examples": [
       {
-        "japanese": "<ruby>日本<rt>にほん</rt></ruby>に<ruby>行<rt>い</rt></ruby>きたい。",
+        "japanese": "<ruby>日本<rt>にほん</rt></ruby>へ<ruby>行<rt>い</rt></ruby>きたい。",
         "korean": "일본에 가고 싶다."
       }
     ]
@@ -1155,7 +1232,7 @@ const JLPT_N5_WORDS = [
     "meaning": "집",
     "examples": [
       {
-        "japanese": "<ruby>家<rt>いえ</rt></ruby>に<ruby>帰<rt>かえ</rt></ruby>る。",
+        "japanese": "<ruby>家<rt>いえ</rt></ruby>へ<ruby>帰<rt>かえ</rt></ruby>る。",
         "korean": "집에 돌아가다."
       }
     ]
@@ -1364,7 +1441,7 @@ const JLPT_N5_WORDS = [
     "meaning": "싫어하다/싫어함",
     "examples": [
       {
-        "japanese": "<ruby>辛<rt>から</rt></ruby>이 <ruby>物<rt>もの</rt></ruby>가 <ruby>嫌<rt>きら</rt></ruby>이다.",
+        "japanese": "<ruby>辛<rt>から</rt></ruby>い<ruby>物<rt>もの</rt></ruby>が<ruby>嫌<rt>きら</rt></ruby>いだ。",
         "korean": "매운 음식을 싫어한다."
       }
     ]
@@ -1743,6 +1820,11 @@ function setupSearchEvents() {
       return;
     }
     
+    if (/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(word)) {
+      showToast('단어(한자/표기)에는 한국어가 포함될 수 없습니다. 일본어 단어만 등록 가능합니다.', false);
+      return;
+    }
+    
     let meaning = mainMeaning;
     if (additionalMeaning) {
       const addParts = additionalMeaning.split(',').map(p => p.trim()).filter(Boolean);
@@ -1793,6 +1875,45 @@ function setupSearchEvents() {
 function renderSearchResult(data) {
   const resultArea = document.getElementById('search-result-area');
   resultArea.classList.remove('hidden');
+  
+  const warningArea = document.getElementById('korean-warning-area');
+  const resultForm = document.getElementById('search-result-form');
+  const infoTag = document.getElementById('search-result-info-tag');
+  
+  if (data.isKoreanEntry) {
+    warningArea.classList.remove('hidden');
+    resultForm.classList.add('hidden');
+    if (infoTag) infoTag.innerText = "한국어 검색 결과입니다. 일본어 단어를 등록해 주세요.";
+    
+    const suggestionsDiv = document.getElementById('warning-suggestions');
+    suggestionsDiv.innerHTML = '';
+    
+    if (data.japaneseSuggestions && data.japaneseSuggestions.length > 0) {
+      data.japaneseSuggestions.forEach(word => {
+        const btn = document.createElement('button');
+        btn.className = 'suggestion-btn';
+        btn.innerHTML = `<i data-lucide="search" style="width: 14px; height: 14px;"></i> ${word}`;
+        btn.addEventListener('click', () => {
+          const searchInput = document.getElementById('search-input');
+          searchInput.value = word;
+          
+          warningArea.classList.add('hidden');
+          resultArea.classList.add('hidden');
+          
+          document.getElementById('btn-search').click();
+        });
+        suggestionsDiv.appendChild(btn);
+      });
+      lucide.createIcons();
+    } else {
+      suggestionsDiv.innerHTML = '<p class="warning-desc" style="margin-bottom: 0;">추천할 수 있는 일본어 단어가 없습니다. 검색창에 일본어 단어를 직접 입력해 주세요.</p>';
+    }
+    return;
+  }
+  
+  warningArea.classList.add('hidden');
+  resultForm.classList.remove('hidden');
+  if (infoTag) infoTag.innerText = "원하는 대로 수정하여 저장할 수 있습니다.";
   
   document.getElementById('edit-word').value = data.word || '';
   document.getElementById('edit-hiragana').value = data.hiragana || '';
@@ -1955,7 +2076,10 @@ function renderCurrentCard() {
   const currentWord = dueWords[currentCardIndex];
   const rubyHTML = buildRubyTag(currentWord.word, currentWord.hiragana);
   
-  document.getElementById('card-front-word').innerHTML = rubyHTML;
+  const frontWordEl = document.getElementById('card-front-word');
+  frontWordEl.innerHTML = rubyHTML;
+  adjustCardWordFontSize(frontWordEl, currentWord.word);
+  
   document.getElementById('card-back-word').innerHTML = rubyHTML;
   document.getElementById('card-back-hiragana').innerText = currentWord.hiragana;
   document.getElementById('card-back-meaning').innerHTML = renderMeaningsHTML(currentWord.meaning);
@@ -1990,6 +2114,22 @@ function renderCurrentCard() {
     ? Math.round((studySessionStats.correct / studySessionStats.reviewed) * 100) 
     : 100;
   document.getElementById('study-accuracy-text').innerText = `오늘의 성공: ${accuracy}%`;
+}
+
+function adjustCardWordFontSize(element, word) {
+  if (!element || !word) return;
+  const len = word.length;
+  if (len <= 4) {
+    element.style.fontSize = '3.2rem';
+  } else if (len <= 6) {
+    element.style.fontSize = '2.6rem';
+  } else if (len <= 8) {
+    element.style.fontSize = '2.1rem';
+  } else if (len <= 10) {
+    element.style.fontSize = '1.7rem';
+  } else {
+    element.style.fontSize = '1.35rem';
+  }
 }
 
 function submitReview(score) {

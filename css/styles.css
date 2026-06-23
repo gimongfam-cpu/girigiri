@@ -1650,3 +1650,97 @@ body.light-theme .main-meaning {
   color: #a5b4fc;
 }
 
+/* Korean search warning and suggestion list */
+.korean-warning-card {
+  background: rgba(245, 158, 11, 0.1);
+  border: 1px solid rgba(245, 158, 11, 0.2);
+  border-radius: 16px;
+  padding: 16px;
+  margin-bottom: 20px;
+  animation: fade-in 0.3s ease;
+}
+
+body.light-theme .korean-warning-card {
+  background: rgba(245, 158, 11, 0.08);
+}
+
+.warning-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--color-warning);
+  margin-bottom: 8px;
+}
+
+.warning-header h4 {
+  font-size: 0.95rem;
+  font-weight: 700;
+  margin: 0;
+}
+
+.warning-icon {
+  width: 18px;
+  height: 18px;
+  stroke: var(--color-warning);
+}
+
+.warning-desc {
+  font-size: 0.8rem;
+  color: var(--text-secondary);
+  line-height: 1.4;
+  margin-bottom: 14px;
+}
+
+.suggestion-buttons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+.suggestion-btn {
+  background: rgba(99, 102, 241, 0.1);
+  border: 1px solid rgba(99, 102, 241, 0.25);
+  color: #a5b4fc;
+  padding: 6px 12px;
+  border-radius: 10px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.suggestion-btn:hover {
+  background: var(--color-primary);
+  border-color: var(--color-primary);
+  color: #fff;
+  transform: translateY(-1px);
+}
+
+.suggestion-btn:active {
+  transform: translateY(0);
+}
+
+/* Card Front UI overrides: absolute TTS button and single-line word display */
+.card-front {
+  position: relative !important;
+}
+
+#btn-tts-front {
+  position: absolute !important;
+  top: 20px !important;
+  right: 20px !important;
+  z-index: 10 !important;
+  margin: 0 !important;
+}
+
+.card-word-display {
+  white-space: nowrap !important;
+  text-align: center !important;
+  width: 100% !important;
+  padding: 0 10px !important;
+}
+
+

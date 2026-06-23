@@ -147,38 +147,55 @@
         <div id="search-result-area" class="result-card hidden">
           <div class="card-header">
             <h3>사전 검색 결과 편집</h3>
-            <span class="info-tag">원하는 대로 수정하여 저장할 수 있습니다.</span>
+            <span class="info-tag" id="search-result-info-tag">원하는 대로 수정하여 저장할 수 있습니다.</span>
           </div>
           
-          <div class="form-group">
-            <label for="edit-word">단어 (한자/표기)</label>
-            <input type="text" id="edit-word" required>
-          </div>
-          
-          <div class="form-group">
-            <label for="edit-hiragana">발음 (히라가나/요미가나)</label>
-            <input type="text" id="edit-hiragana" required>
-          </div>
-          
-          <div class="form-group">
-            <label for="edit-meaning">메인 뜻 (네이버 사전 1번 의미)</label>
-            <input type="text" id="edit-meaning" required placeholder="예: 기쁘다">
-          </div>
-          <div class="form-group">
-            <label for="edit-meaning-additional">추가 뜻 (쉼표로 구분, 최대 2~3개)</label>
-            <input type="text" id="edit-meaning-additional" placeholder="예: 반갑다, 즐겁다">
-          </div>
-          
-          <div class="form-group">
-            <label>일본어 예문 (최대 3개)</label>
-            <div id="examples-edit-list">
-              <!-- Dynamically populated examples textboxes -->
+          <!-- Korean Entry Warning & Suggestions -->
+          <div id="korean-warning-area" class="korean-warning-card hidden">
+            <div class="warning-header">
+              <i data-lucide="alert-triangle" class="warning-icon"></i>
+              <h4>한국어 단어가 검색되었습니다</h4>
+            </div>
+            <p class="warning-desc">
+              단어장에는 일본어 단어를 등록해야 발음(TTS) 및 학습 카드가 정상적으로 작동합니다.
+              아래 일본어 단어 중 하나를 선택하시면 자동으로 상세 검색이 진행됩니다.
+            </p>
+            <div class="suggestion-buttons" id="warning-suggestions">
+              <!-- Dynamically populated suggestion buttons -->
             </div>
           </div>
-          
-          <button id="btn-save-word" class="success-btn full-width-btn">
-            <i data-lucide="save"></i> 단어장에 저장하기
-          </button>
+
+          <div id="search-result-form">
+            <div class="form-group">
+              <label for="edit-word">단어 (한자/표기)</label>
+              <input type="text" id="edit-word" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="edit-hiragana">발음 (히라가나/요미가나)</label>
+              <input type="text" id="edit-hiragana" required>
+            </div>
+            
+            <div class="form-group">
+              <label for="edit-meaning">메인 뜻 (네이버 사전 1번 의미)</label>
+              <input type="text" id="edit-meaning" required placeholder="예: 기쁘다">
+            </div>
+            <div class="form-group">
+              <label for="edit-meaning-additional">추가 뜻 (쉼표로 구분, 최대 2~3개)</label>
+              <input type="text" id="edit-meaning-additional" placeholder="예: 반갑다, 즐겁다">
+            </div>
+            
+            <div class="form-group">
+              <label>일본어 예문 (최대 3개)</label>
+              <div id="examples-edit-list">
+                <!-- Dynamically populated examples textboxes -->
+              </div>
+            </div>
+            
+            <button id="btn-save-word" class="success-btn full-width-btn">
+              <i data-lucide="save"></i> 단어장에 저장하기
+            </button>
+          </div>
         </div>
       </section>
 
