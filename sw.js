@@ -38,6 +38,10 @@ self.addEventListener('fetch', (event) => {
   if (event.request.method !== 'GET' || event.request.url.includes('/api/')) {
     return;
   }
+  // Only handle HTTP/HTTPS protocols (avoid chrome-extension://, etc. errors)
+  if (!event.request.url.startsWith('http')) {
+    return;
+  }
   
   event.respondWith(
     fetch(event.request).then((response) => {

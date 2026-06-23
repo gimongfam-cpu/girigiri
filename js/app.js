@@ -670,7 +670,7 @@ function parseNaverHtml(htmlContent) {
   const hiragana = stripHtmlTags(unescapeHtml(hiraganaRaw));
   
   const meanings = [];
-  const examples = [];
+  const allExamples = [];
   
   const meanList = firstItem.meanList || [];
   for (let meanObj of meanList) {
@@ -680,23 +680,34 @@ function parseNaverHtml(htmlContent) {
       meanings.push(cleanMean);
     }
     
-    // Max 3 examples
-    if (meanObj.exampleOri && examples.length < 3) {
+    if (meanObj.exampleOri) {
       let exJpRaw = meanObj.exampleOri;
-      let exJp = stripHtmlTags(unescapeHtml(exJpRaw));
+      let exJp = preserveRubyTags(exJpRaw);
       
       let exKoRaw = meanObj.exampleTrans || '';
-      let exKo = stripHtmlTags(unescapeHtml(exKoRaw));
+      let exKo = stripHtmlTags(unescapeHtml(exKoRaw)).trim();
       
       if (exJp && exKo) {
-        examples.push({
-          japanese: exJp.trim(),
-          korean: exKo.trim()
-        });
+        // Prevent duplicate examples
+        const isDuplicate = allExamples.some(e => stripHtmlTags(e.japanese).trim() === stripHtmlTags(exJp).trim());
+        if (!isDuplicate) {
+          allExamples.push({
+            japanese: exJp.trim(),
+            korean: exKo
+          });
+        }
       }
     }
   }
   
+  // Sort examples by clean text length (easier/shorter first)
+  allExamples.sort((a, b) => {
+    const cleanA = stripHtmlTags(a.japanese);
+    const cleanB = stripHtmlTags(b.japanese);
+    return cleanA.length - cleanB.length;
+  });
+  
+  const examples = allExamples.slice(0, 3);
   const mainMeaning = meanings.slice(0, 3).join(", ");
   
   return {
@@ -771,6 +782,33 @@ function stripHtmlTags(str) {
   return str.replace(/<[^>]*>/g, '');
 }
 
+function preserveRubyTags(rawHtml) {
+  if (!rawHtml) return '';
+  let unescaped = unescapeHtml(rawHtml);
+  unescaped = unescaped.replace(/<\/?strong[^>]*>/gi, '');
+  
+  const parser = new DOMParser();
+  const doc = parser.parseFromString(`<div>${unescaped}</div>`, 'text/html');
+  const div = doc.body.firstChild;
+  
+  function clean(node) {
+    const childNodes = Array.from(node.childNodes);
+    for (let child of childNodes) {
+      if (child.nodeType === Node.ELEMENT_NODE) {
+        const tagName = child.tagName.toLowerCase();
+        if (tagName === 'ruby' || tagName === 'rb' || tagName === 'rt') {
+          clean(child);
+        } else {
+          const textNode = doc.createTextNode(child.textContent);
+          node.replaceChild(textNode, child);
+        }
+      }
+    }
+  }
+  clean(div);
+  return div.innerHTML;
+}
+
 function unescapeHtml(str) {
   if (!str) return '';
   const doc = new DOMParser().parseFromString(str, 'text/html');
@@ -781,117 +819,557 @@ function unescapeHtml(str) {
    GLOBAL HELPERS & RENDER UTILS
    ======================================================== */
 const JLPT_N5_WORDS = [
-  { word: '行く', hiragana: 'いく', meaning: '가다', examples: [{ japanese: '図書館に行く。', korean: '도서관에 가다.' }] },
-  { word: '来る', hiragana: 'くる', meaning: '오다', examples: [{ japanese: '友達가家に来る。', korean: '친구들이 집에 오다.' }] }, // wait: 友達が家に来る
-  { word: '食べる', hiragana: 'たべる', meaning: '먹다', examples: [{ japanese: 'りんごを食べる。', korean: '사과를 먹다.' }] },
-  { word: '飲む', hiragana: 'のむ', meaning: '마시다', examples: [{ japanese: 'お水を飲む。', korean: '물을 마시다.' }] },
-  { word: '見る', hiragana: 'みる', meaning: '보다', examples: [{ japanese: '映画を見る。', korean: '영화의 보다.' }] },
-  { word: '聞く', hiragana: 'きく', meaning: '듣다/묻다', examples: [{ japanese: '音楽を聞く。', korean: '음악을 듣다.' }] },
-  { word: '話す', hiragana: 'はなす', meaning: '말하다', examples: [{ japanese: '日本語で話す。', korean: '일본어로 말하다.' }] },
-  { word: '読む', hiragana: 'よむ', meaning: '읽다', examples: [{ japanese: '本を読む。', korean: '책을 읽다.' }] },
-  { word: '書く', hiragana: 'かく', meaning: '쓰다', examples: [{ japanese: '手紙を書く。', korean: '편지를 쓰다.' }] },
-  { word: '買う', hiragana: 'かう', meaning: '사다', examples: [{ japanese: '服を買う。', korean: '옷을 사다.' }] },
-  { word: '会う', hiragana: 'あう', meaning: '만나다', examples: [{ japanese: '友達に会う。', korean: '친구를 만나다.' }] },
-  { word: '勉強する', hiragana: 'べんきょうする', meaning: '공부하다', examples: [{ japanese: '日本語を勉強する。', korean: '일본어를 공부하다.' }] },
-  { word: '大きい', hiragana: 'おおきい', meaning: '크다', examples: [{ japanese: '大きい家。', korean: '큰 집.' }] },
-  { word: '小さい', hiragana: 'ちいさい', meaning: '작다', examples: [{ japanese: '小さい猫。', korean: '작은 고양이.' }] },
-  { word: '新しい', hiragana: 'あたらしい', meaning: '새롭다', examples: [{ japanese: '新しい携帯。', korean: '새 휴대폰.' }] },
-  { word: '古い', hiragana: 'ふるい', meaning: '오래되다/낡다', examples: [{ japanese: '古い本。', korean: '오래된 책.' }] },
-  { word: '良い', hiragana: 'いい', meaning: '좋다', examples: [{ japanese: '天気がいい。', korean: '날씨가 좋다.' }] },
-  { word: '悪い', hiragana: 'わるい', meaning: '나쁘다', examples: [{ japanese: '気分が悪い。', korean: '기분이 나쁘다.' }] },
-  { word: '高い', hiragana: 'たかい', meaning: '높다/비싸다', examples: [{ japanese: '値段が高い。', korean: '가격이 비싸다.' }] },
-  { word: '安い', hiragana: 'やすい', meaning: '싸다', examples: [{ japanese: '値段が安い。', korean: '가격이 싸다.' }] },
-  { word: '暑い', hiragana: 'あつい', meaning: '덥다', examples: [{ japanese: '今日はずいぶん暑い。', korean: '오늘은 꽤 덥다.' }] },
-  { word: '寒い', hiragana: 'さむい', meaning: '춥다', examples: [{ japanese: '外はとても寒い。', korean: '밖은 매우 춥다.' }] },
-  { word: '難しい', hiragana: 'むずかしい', meaning: '어렵다', examples: [{ japanese: '試験は難しい。', korean: '시험은 어렵다.' }] },
-  { word: '易しい', hiragana: 'やさしい', meaning: '쉽다', examples: [{ japanese: '問題は易しい。', korean: '문제는 쉽다.' }] },
-  { word: '友達', hiragana: 'ともだ치', meaning: '친구', examples: [{ japanese: '私たちは友達だ。', korean: '우리는 친구다.' }] }, // wait: ともだち
-  { word: '先生', hiragana: 'せんせい', meaning: '선생님', examples: [{ japanese: '日本語の先生。', korean: '일본어 선생님.' }] },
-  { word: '学生', hiragana: 'がくせい', meaning: '학생', examples: [{ japanese: '私は学生です。', korean: '저는 학생입니다.' }] },
-  { word: '学校', hiragana: 'がっこう', meaning: '학교', examples: [{ japanese: '学校に行く。', korean: '학교에 가다.' }] },
-  { word: '日本', hiragana: 'にほん', meaning: '일본', examples: [{ japanese: '日本に行きたい。', korean: '일본에 가고 싶다.' }] },
-  { word: '韓国', hiragana: 'かんこく', meaning: '한국', examples: [{ japanese: '韓国のソウル。', korean: '한국의 서울.' }] },
-  { word: '家', hiragana: 'いえ', meaning: '집', examples: [{ japanese: '家に帰る。', korean: '집에 돌아가다.' }] },
-  { word: '部屋', hiragana: 'へや', meaning: '방', examples: [{ japanese: '部屋が広い。', korean: '방이 넓다.' }] },
-  { word: '時計', hiragana: 'とけい', meaning: '시계', examples: [{ japanese: '壁の時計。', korean: '벽시계.' }] },
-  { word: '電話', hiragana: 'でんわ', meaning: '전화', examples: [{ japanese: '電話をかける。', korean: '전화를 걸다.' }] },
-  { word: '傘', hiragana: 'かさ', meaning: '우산', examples: [{ japanese: '傘を사す。', korean: '우산을 쓰다.' }] }, // wait: 傘をさす
-  { word: '車', hiragana: 'くるま', meaning: '자동차', examples: [{ japanese: '新しい車。', korean: '새 차.' }] },
-  { word: '自転車', hiragana: 'じてんしゃ', meaning: '자전거', examples: [{ japanese: '自転車に乗る。', korean: '자전거를 타다.' }] },
-  { word: '電車', hiragana: 'でんしゃ', meaning: '전철', examples: [{ japanese: '電車に乗る。', korean: '전철을 타다.' }] },
-  { word: '水', hiragana: 'みず', meaning: '물', examples: [{ japanese: '水を飲む。', korean: '물을 마시다.' }] },
-  { word: 'お茶', hiragana: 'おちゃ', meaning: '차', examples: [{ japanese: '温かいお茶。', korean: '따뜻한 차.' }] },
-  { word: '朝', hiragana: 'あさ', meaning: '아침', examples: [{ japanese: '朝起きる。', korean: '아침에 일어나다.' }] },
-  { word: '昼', hiragana: 'ひる', meaning: '낮', examples: [{ japanese: '昼ご飯を食べる。', korean: '점심을 먹다.' }] },
-  { word: '夜', hiragana: 'よる', meaning: '밤', examples: [{ japanese: '夜遅く寝る。', korean: '밤 늦게 자다.' }] },
-  { word: '今日', hiragana: 'きょう', meaning: '오늘', examples: [{ japanese: '今日は何曜日？', korean: '오늘은 무슨 요일?' }] },
-  { word: '明日', hiragana: 'あした', meaning: '내일', examples: [{ japanese: '明日会おう。', korean: '내일 만나자.' }] },
-  { word: '昨日', hiragana: 'きのう', meaning: '어제', examples: [{ japanese: '昨日あったこと。', korean: '어제 있었던 일.' }] },
-  { word: '楽しい', hiragana: 'たのしい', meaning: '즐겁다', examples: [{ japanese: '旅行は楽しい。', korean: '여행은 즐겁다.' }] },
-  { word: '面白い', hiragana: 'おもしろい', meaning: '재미있다', examples: [{ japanese: '映画が面白い。', korean: '영화가 재미있다.' }] },
-  { word: '好き', hiragana: 'すき', meaning: '좋아하다/좋아함', examples: [{ japanese: '日本料理が好きだ。', korean: '일본 요리를 좋아한다.' }] },
-  { word: '嫌い', hiragana: 'きらい', meaning: '싫어하다/싫어함', examples: [{ japanese: '辛い物が嫌いだ。', korean: '매운 음식을 싫어한다.' }] }
-];
-
-// Correct minor typos in the literal strings:
-// 友達가家に来る -> 友達が家に来る
-// 友達に会う -> 友達に会う
-// 傘を사す -> 傘をさす
-// ともだ치 -> ともだち
-for (let item of JLPT_N5_WORDS) {
-  if (item.word === '来る') item.examples[0].japanese = '友達が家に来る。';
-  if (item.word === '友達') item.hiragana = 'ともだち';
-  if (item.word === '傘') item.examples[0].japanese = '傘をさす。';
-}
-
-function loadTodayRecommendation() {
-  const activeArea = document.getElementById('recommend-card-active');
-  const emptyArea = document.getElementById('recommend-card-empty');
-  const wordEl = document.getElementById('recommend-word');
-  const meaningEl = document.getElementById('recommend-meaning');
-  const exArea = document.getElementById('recommend-example-area');
-  const exJpEl = document.getElementById('recommend-ex-jp');
-  const exKoEl = document.getElementById('recommend-ex-ko');
-  
-  dbGetWords(false) // Get all saved words
-    .then(savedWords => {
-      // 1. 단어장에 있는 단어들을 Set으로 수집 (중복 추천 방지)
-      const savedSet = new Set(savedWords.map(w => w.word));
-      
-      // 2. 단어장에 없는 JLPT N5 단어만 필터링
-      const available = JLPT_N5_WORDS.filter(w => !savedSet.has(w.word));
-      
-      if (available.length === 0) {
-        // 추천할 단어가 모두 바닥났을 때 (다 저장한 상태)
-        activeArea.classList.add('hidden');
-        emptyArea.classList.remove('hidden');
-        currentRecommendationWord = null;
-        return;
+  {
+    "word": "行く",
+    "hiragana": "いく",
+    "meaning": "가다",
+    "examples": [
+      {
+        "japanese": "<ruby>図書館<rt>としょかん</rt></ruby>に<ruby>行<rt>い</rt></ruby>く。",
+        "korean": "도서관에 가다."
       }
-      
-      // 3. 필터링된 단어 중 무작위 선택
-      activeArea.classList.remove('hidden');
-      emptyArea.classList.add('hidden');
-      
-      const randIdx = Math.floor(Math.random() * available.length);
-      const selectedWord = available[randIdx];
-      
-      currentRecommendationWord = selectedWord;
-      
-      // Build ruby tag
-      const rubyHTML = buildRubyTag(selectedWord.word, selectedWord.hiragana);
-      wordEl.innerHTML = rubyHTML;
-      meaningEl.innerText = selectedWord.meaning;
-      
-      if (selectedWord.examples && selectedWord.examples.length > 0) {
-        const firstEx = selectedWord.examples[0];
-        exJpEl.innerText = firstEx.japanese;
-        exKoEl.innerText = firstEx.korean;
-        exArea.classList.remove('hidden');
-      } else {
-        exArea.classList.add('hidden');
+    ]
+  },
+  {
+    "word": "来る",
+    "hiragana": "くる",
+    "meaning": "오다",
+    "examples": [
+      {
+        "japanese": "<ruby>友達<rt>ともだち</rt></ruby>が<ruby>家<rt>いえ</rt></ruby>に<ruby>来<rt>く</rt></ruby>る。",
+        "korean": "친구들이 집에 오다."
       }
-    })
+    ]
+  },
+  {
+    "word": "食べる",
+    "hiragana": "たべる",
+    "meaning": "먹다",
+    "examples": [
+      {
+        "japanese": "りんごを<ruby>食<rt>た</rt></ruby>べる。",
+        "korean": "사과를 먹다."
+      }
+    ]
+  },
+  {
+    "word": "飲む",
+    "hiragana": "のむ",
+    "meaning": "마시다",
+    "examples": [
+      {
+        "japanese": "お<ruby>水<rt>みず</rt></ruby>を<ruby>飲<rt>の</rt></ruby>む。",
+        "korean": "물을 마시다."
+      }
+    ]
+  },
+  {
+    "word": "見る",
+    "hiragana": "みる",
+    "meaning": "보다",
+    "examples": [
+      {
+        "japanese": "<ruby>映画<rt>えいが</rt></ruby>を<ruby>見<rt>み</rt></ruby>る。",
+        "korean": "영화를 보다."
+      }
+    ]
+  },
+  {
+    "word": "聞く",
+    "hiragana": "きく",
+    "meaning": "듣다/묻다",
+    "examples": [
+      {
+        "japanese": "<ruby>音楽<rt>おんがく</rt></ruby>を<ruby>聞<rt>き</rt></ruby>く。",
+        "korean": "음악을 듣다."
+      }
+    ]
+  },
+  {
+    "word": "話す",
+    "hiragana": "はなす",
+    "meaning": "말하다",
+    "examples": [
+      {
+        "japanese": "<ruby>日本語<rt>にほんご</rt></ruby>で<ruby>話<rt>はな</rt></ruby>す。",
+        "korean": "일본어로 말하다."
+      }
+    ]
+  },
+  {
+    "word": "読む",
+    "hiragana": "よむ",
+    "meaning": "읽다",
+    "examples": [
+      {
+        "japanese": "<ruby>本<rt>ほん</rt></ruby>を<ruby>読<rt>よ</rt></ruby>む。",
+        "korean": "책을 읽다."
+      }
+    ]
+  },
+  {
+    "word": "書く",
+    "hiragana": "かく",
+    "meaning": "쓰다",
+    "examples": [
+      {
+        "japanese": "편지를 쓰다.",
+        "korean": "편지를 쓰다."
+      }
+    ]
+  },
+  {
+    "word": "買う",
+    "hiragana": "かう",
+    "meaning": "사다",
+    "examples": [
+      {
+        "japanese": "옷을 사다.",
+        "korean": "옷을 사다."
+      }
+    ]
+  },
+  {
+    "word": "会う",
+    "hiragana": "あう",
+    "meaning": "만나다",
+    "examples": [
+      {
+        "japanese": "<ruby>友達<rt>ともだち</rt></ruby>に<ruby>会<rt>あ</rt></ruby>う。",
+        "korean": "친구를 만나다."
+      }
+    ]
+  },
+  {
+    "word": "勉強する",
+    "hiragana": "べんきょうする",
+    "meaning": "공부하다",
+    "examples": [
+      {
+        "japanese": "<ruby>日本語<rt>にほんご</rt></ruby>를<ruby>勉強<rt>べんきょう</rt></ruby>する。",
+        "korean": "일본어를 공부하다."
+      }
+    ]
+  },
+  {
+    "word": "大きい",
+    "hiragana": "おおきい",
+    "meaning": "크다",
+    "examples": [
+      {
+        "japanese": "큰 집.",
+        "korean": "큰 집."
+      }
+    ]
+  },
+  {
+    "word": "小さい",
+    "hiragana": "치이사이",
+    "meaning": "작다",
+    "examples": [
+      {
+        "japanese": "작은 고양이.",
+        "korean": "작은 고양이."
+      }
+    ]
+  },
+  {
+    "word": "新しい",
+    "hiragana": "あたらしい",
+    "meaning": "새롭다",
+    "examples": [
+      {
+        "japanese": "새 휴대폰.",
+        "korean": "새 휴대폰."
+      }
+    ]
+  },
+  {
+    "word": "古い",
+    "hiragana": "ふるい",
+    "meaning": "오래되다/낡다",
+    "examples": [
+      {
+        "japanese": "오래된 책.",
+        "korean": "오래된 책."
+      }
+    ]
+  },
+  {
+    "word": "좋은",
+    "hiragana": "좋다",
+    "meaning": "좋다",
+    "examples": [
+      {
+        "japanese": "날씨가 좋다.",
+        "korean": "날씨가 좋다."
+      }
+    ]
+  },
+  {
+    "word": "悪い",
+    "hiragana": "わるい",
+    "meaning": "나쁘다",
+    "examples": [
+      {
+        "japanese": "<ruby>気分<rt>きぶん</rt></ruby>가<ruby>悪<rt>わる</rt></ruby>い。",
+        "korean": "기분이 나쁘다."
+      }
+    ]
+  },
+  {
+    "word": "高い",
+    "hiragana": "타카이",
+    "meaning": "높다/비싸다",
+    "examples": [
+      {
+        "japanese": "가격이 비싸다.",
+        "korean": "가격이 비싸다."
+      }
+    ]
+  },
+  {
+    "word": "安い",
+    "hiragana": "やすい",
+    "meaning": "싸다",
+    "examples": [
+      {
+        "japanese": "<ruby>値段<rt>ねだん</rt></ruby>が<ruby>安<rt>やす</rt></ruby>い。",
+        "korean": "가격이 싸다."
+      }
+    ]
+  },
+  {
+    "word": "暑い",
+    "hiragana": "아츠이",
+    "meaning": "덥다",
+    "examples": [
+      {
+        "japanese": "오늘은 꽤 덥다.",
+        "korean": "오늘은 꽤 덥다."
+      }
+    ]
+  },
+  {
+    "word": "寒い",
+    "hiragana": "さむい",
+    "meaning": "춥다",
+    "examples": [
+      {
+        "japanese": "<ruby>外<rt>そと</rt></ruby>はとても<ruby>寒<rt>さむ</rt></ruby>い。",
+        "korean": "밖은 매우 춥다."
+      }
+    ]
+  },
+  {
+    "word": "難しい",
+    "hiragana": "무즈카시이",
+    "meaning": "어렵다",
+    "examples": [
+      {
+        "japanese": "시험은 어렵다.",
+        "korean": "시험은 어렵다."
+      }
+    ]
+  },
+  {
+    "word": "易しい",
+    "hiragana": "やさしい",
+    "meaning": "쉽다",
+    "examples": [
+      {
+        "japanese": "<ruby>問題<rt>もんだい</rt></ruby>は<ruby>易<rt>やさ</rt></ruby>しい。",
+        "korean": "문제는 쉽다."
+      }
+    ]
+  },
+  {
+    "word": "友達",
+    "hiragana": "ともだち",
+    "meaning": "친구",
+    "examples": [
+      {
+        "japanese": "<ruby>私<rt>わたし</rt></ruby>たちは<ruby>友達<rt>ともだち</rt></ruby>다。",
+        "korean": "우리는 친구다."
+      }
+    ]
+  },
+  {
+    "word": "先生",
+    "hiragana": "せんせい",
+    "meaning": "선생님",
+    "examples": [
+      {
+        "japanese": "<ruby>日本語<rt>にほんご</rt></ruby>の<ruby>先生<rt>せんせい</rt></ruby>。",
+        "korean": "일본어 선생님."
+      }
+    ]
+  },
+  {
+    "word": "学生",
+    "hiragana": "がくせい",
+    "meaning": "학생",
+    "examples": [
+      {
+        "japanese": "<ruby>私<rt>わたし</rt></ruby>は<ruby>学生<rt>がくせい</rt></ruby>です。",
+        "korean": "저 학생입니다."
+      }
+    ]
+  },
+  {
+    "word": "学校",
+    "hiragana": "がっこう",
+    "meaning": "학교",
+    "examples": [
+      {
+        "japanese": "<ruby>学校<rt>がっこう</rt></ruby>に<ruby>行<rt>い</rt></ruby>く。",
+        "korean": "학교에 가다."
+      }
+    ]
+  },
+  {
+    "word": "日本",
+    "hiragana": "にほん",
+    "meaning": "일본",
+    "examples": [
+      {
+        "japanese": "<ruby>日本<rt>にほん</rt></ruby>に<ruby>行<rt>い</rt></ruby>きたい。",
+        "korean": "일본에 가고 싶다."
+      }
+    ]
+  },
+  {
+    "word": "韓国",
+    "hiragana": "かんこく",
+    "meaning": "한국",
+    "examples": [
+      {
+        "japanese": "<ruby>韓国<rt>かんこく</rt></ruby>のソウル。",
+        "korean": "한국의 서울."
+      }
+    ]
+  },
+  {
+    "word": "家",
+    "hiragana": "いえ",
+    "meaning": "집",
+    "examples": [
+      {
+        "japanese": "<ruby>家<rt>いえ</rt></ruby>に<ruby>帰<rt>かえ</rt></ruby>る。",
+        "korean": "집에 돌아가다."
+      }
+    ]
+  },
+  {
+    "word": "部屋",
+    "hiragana": "へや",
+    "meaning": "방",
+    "examples": [
+      {
+        "japanese": "<ruby>部屋<rt>へや</rt></ruby>が<ruby>広<rt>ひろ</rt></ruby>い。",
+        "korean": "방이 넓다."
+      }
+    ]
+  },
+  {
+    "word": "時計",
+    "hiragana": "とけい",
+    "meaning": "시계",
+    "examples": [
+      {
+        "japanese": "<ruby>壁<rt>かべ</rt></ruby>の<ruby>時計<rt>とけい</rt></ruby>。",
+        "korean": "벽시계."
+      }
+    ]
+  },
+  {
+    "word": "電話",
+    "hiragana": "でんわ",
+    "meaning": "전화",
+    "examples": [
+      {
+        "japanese": "<ruby>電話<rt>でんわ</rt></ruby>をかける。",
+        "korean": "전화를 걸다."
+      }
+    ]
+  },
+  {
+    "word": "傘",
+    "hiragana": "かさ",
+    "meaning": "우산",
+    "examples": [
+      {
+        "japanese": "<ruby>傘<rt>かさ</rt></ruby>をさす。",
+        "korean": "우산을 쓰다."
+      }
+    ]
+  },
+  {
+    "word": "車",
+    "hiragana": "くるま",
+    "meaning": "자동차",
+    "examples": [
+      {
+        "japanese": "<ruby>新<rt>あたら</rt></ruby>しい<ruby>車<rt>くるま</rt></ruby>。",
+        "korean": "새 차."
+      }
+    ]
+  },
+  {
+    "word": "自転車",
+    "hiragana": "じてんしゃ",
+    "meaning": "자전거",
+    "examples": [
+      {
+        "japanese": "<ruby>自転車<rt>じてんしゃ</rt></ruby>に<ruby>乗<rt>の</rt></ruby>る。",
+        "korean": "자전거를 타다."
+      }
+    ]
+  },
+  {
+    "word": "電車",
+    "hiragana": "でんしゃ",
+    "meaning": "전철",
+    "examples": [
+      {
+        "japanese": "<ruby>電車<rt>でんしゃ</rt></ruby>に<ruby>乗<rt>の</rt></ruby>る。",
+        "korean": "전철을 타다."
+      }
+    ]
+  },
+  {
+    "word": "水",
+    "hiragana": "みず",
+    "meaning": "물",
+    "examples": [
+      {
+        "japanese": "<ruby>水<rt>みず</rt></ruby>を<ruby>飲<rt>の</rt></ruby>む。",
+        "korean": "물을 마시다."
+      }
+    ]
+  },
+  {
+    "word": "お茶",
+    "hiragana": "おちゃ",
+    "meaning": "차",
+    "examples": [
+      {
+        "japanese": "<ruby>温<rt>あたた</rt></ruby>かいお<ruby>茶<rt>ちゃ</rt></ruby>。",
+        "korean": "따뜻한 차."
+      }
+    ]
+  },
+  {
+    "word": "朝",
+    "hiragana": "あさ",
+    "meaning": "아침",
+    "examples": [
+      {
+        "japanese": "<ruby>朝<rt>あさ</rt></ruby><ruby>起<rt>お</rt></ruby>きる。",
+        "korean": "아침에 일어나다."
+      }
+    ]
+  },
+  {
+    "word": "昼",
+    "hiragana": "ひる",
+    "meaning": "낮",
+    "examples": [
+      {
+        "japanese": "<ruby>昼<rt>ひる</rt></ruby>ご<ruby>飯<rt>はん</rt></ruby>を<ruby>食<rt>た</rt></ruby>べる。",
+        "korean": "점심을 먹다."
+      }
+    ]
+  },
+  {
+    "word": "夜",
+    "hiragana": "よる",
+    "meaning": "밤",
+    "examples": [
+      {
+        "japanese": "<ruby>夜<rt>よる</rt></ruby><ruby>遅<rt>おそ</rt></ruby>く<ruby>寝<rt>ね</rt></ruby>る。",
+        "korean": "밤 늦게 자다."
+      }
+    ]
+  },
+  {
+    "word": "今日",
+    "hiragana": "きょう",
+    "meaning": "오늘",
+    "examples": [
+      {
+        "japanese": "<ruby>今日<rt>きょう</rt></ruby>は<ruby>何曜日<rt>なんようび</rt></ruby>？",
+        "korean": "오늘은 무슨 요일?"
+      }
+    ]
+  },
+  {
+    "word": "明日",
+    "hiragana": "あした",
+    "meaning": "내일",
+    "examples": [
+      {
+        "japanese": "<ruby>明日<rt>あした</rt></ruby><ruby>会<rt>あ</rt></ruby>おう。",
+        "korean": "내일 만나자."
+      }
+    ]
+  },
+  {
+    "word": "昨日",
+    "hiragana": "きのう",
+    "meaning": "어제",
+    "examples": [
+      {
+        "japanese": "<ruby>昨日<rt>きのう</rt></ruby>あったこと。",
+        "korean": "어제 있었던 일."
+      }
+    ]
+  },
+  {
+    "word": "楽しい",
+    "hiragana": "たのしい",
+    "meaning": "즐겁다",
+    "examples": [
+      {
+        "japanese": "<ruby>旅行<rt>りょこう</rt></ruby>は<ruby>楽<rt>たの</rt></ruby>しい。",
+        "korean": "여행은 즐겁다."
+      }
+    ]
+  },
+  {
+    "word": "面白い",
+    "hiragana": "おもしろい",
+    "meaning": "재미있다",
+    "examples": [
+      {
+        "japanese": "<ruby>映画<rt>えいが</rt></ruby>が<ruby>面白<rt>おもしろ</rt></ruby>い。",
+        "korean": "영화가 재미있다."
+      }
+    ]
+  },
+  {
+    "word": "好き",
+    "hiragana": "すき",
+    "meaning": "좋아하다/좋아함",
+    "examples": [
+      {
+        "japanese": "<ruby>日本料理<rt>にほんりょうり</rt></ruby>が<ruby>好<rt>す</rt></ruby>きだ。",
+        "korean": "일본 요리를 좋아한다."
+      }
+    ]
+  },
+  {
+    "word": "嫌い",
+    "hiragana": "きらい",
+    "meaning": "싫어하다/싫어함",
+    "examples": [
+      {
+        "japanese": "<ruby>辛<rt>から</rt></ruby>い<ruby>物<rt>もの</rt></ruby>が<ruby>嫌<rt>きら</rt></ruby>いだ。",
+        "korean": "매운 음식을 싫어한다."
+      }
+    ]
+  }
+];)
     .catch(err => {
       console.error("Failed to load today recommendation:", err);
     });
@@ -932,7 +1410,7 @@ function loadTodayDueWord() {
       
       if (selectedWord.examples && selectedWord.examples.length > 0) {
         const firstEx = selectedWord.examples[0];
-        exJpEl.innerText = firstEx.japanese;
+        exJpEl.innerHTML = firstEx.japanese;
         exKoEl.innerText = firstEx.korean;
         exArea.classList.remove('hidden');
       } else {
@@ -1193,11 +1671,18 @@ function setupSearchEvents() {
     
     const examples = [];
     const exRows = document.querySelectorAll('.example-edit-row');
-    exRows.forEach(row => {
+    exRows.forEach((row, index) => {
       const jp = row.querySelector('.edit-ex-jp').value.trim();
       const ko = row.querySelector('.edit-ex-ko').value.trim();
       if (jp && ko) {
-        examples.push({ japanese: jp, korean: ko });
+        let jpSaved = jp;
+        if (currentSearchData && currentSearchData.examples && currentSearchData.examples[index]) {
+          const origJp = currentSearchData.examples[index].japanese;
+          if (stripHtmlTags(origJp).trim() === jp) {
+            jpSaved = origJp; // Keep the ruby-tagged original Japanese if the user did not edit it
+          }
+        }
+        examples.push({ japanese: jpSaved, korean: ko });
       }
     });
     
@@ -1239,8 +1724,9 @@ function renderSearchResult(data) {
     
     const exRow = document.createElement('div');
     exRow.className = 'example-edit-row';
+    const cleanJp = stripHtmlTags(ex.japanese);
     exRow.innerHTML = `
-      <input type="text" class="edit-ex-jp" placeholder="예문 ${i+1} (일본어)" value="${ex.japanese}">
+      <input type="text" class="edit-ex-jp" placeholder="예문 ${i+1} (일본어)" value="${cleanJp}">
       <input type="text" class="edit-ex-ko" placeholder="예문 ${i+1} 번역 (한국어)" value="${ex.korean}">
     `;
     examplesContainer.appendChild(exRow);
@@ -1304,12 +1790,12 @@ function setupStudyEvents() {
   // TTS Triggers
   document.getElementById('btn-tts-front').addEventListener('click', (e) => {
     e.stopPropagation();
-    const txt = document.getElementById('card-front-word').innerText;
+    const txt = document.getElementById('card-front-word').innerHTML;
     speakJapanese(txt);
   });
   document.getElementById('btn-tts-back').addEventListener('click', (e) => {
     e.stopPropagation();
-    const txt = document.getElementById('card-back-word').innerText;
+    const txt = document.getElementById('card-back-word').innerHTML;
     speakJapanese(txt);
   });
 
@@ -1384,7 +1870,7 @@ function renderCurrentCard() {
           <p class="ex-jp" id="ex-jp-${idx}">${ex.japanese}</p>
           <p class="ex-ko">${ex.korean}</p>
         </div>
-        <button class="tts-btn" onclick="event.stopPropagation(); speakJapanese(document.getElementById('ex-jp-${idx}').innerText)" title="예문 발음 듣기">
+        <button class="tts-btn" onclick="event.stopPropagation(); speakJapanese(document.getElementById('ex-jp-${idx}').innerHTML)" title="예문 발음 듣기">
           <i data-lucide="volume-2"></i>
         </button>
       `;
@@ -1706,7 +2192,7 @@ const ROMAJI_MAP = {
   'ja': 'じゃ', 'ju': 'じゅ', 'jo': 'じょ',
 
   'ka': 'か', 'ki': 'き', 'ku': 'く', 'ke': 'け', 'ko': 'こ',
-  'sa': 'さ', 'si': 'し', 'su': 'す', 'se': 'せ', 'so': 'そ',
+  'sa': 'さ', 'si': 'し', 'su': 'す', 'se': '세', 'so': 'そ',
   'ta': 'た', 'ti': 'ち', 'tu': 'つ', 'te': 'て', 'to': 'と',
   'na': 'な', 'ni': 'に', 'nu': 'ぬ', 'ne': 'ね', 'no': 'の',
   'ha': 'は', 'hi': 'ひ', 'fu': 'ふ', 'he': 'へ', 'ho': 'ほ',
@@ -1736,15 +2222,7 @@ function convertRomajiToHiragana(text, isFinal = false) {
   
   // 2. Extra correction mapping
   const correctedMap = { 
-    ...ROMAJI_MAP, 
-    'no': 'の',
-    're': 'れ', 
-    'ga': 'が', 
-    'gi': 'ぎ', 
-    'gu': 'ぐ', 
-    'ge': 'げ',
-    'go': 'ご',
-    'zyo': 'じょ'
+    ...ROMAJI_MAP
   };
   
   // 3. Sort keys by length desc to prevent partial matching
