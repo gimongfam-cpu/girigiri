@@ -613,8 +613,8 @@ async function fetchNaverDictionaryData(word) {
   const encodedWord = encodeURIComponent(word);
   const targetUrl = `https://dict.naver.com/search.dict?dicQuery=${encodedWord}&query=${encodedWord}&target=dic&ie=utf8`;
   
-  const isApkEnv = window.location.protocol === 'file:';
-  const proxyUrl = isApkEnv ? targetUrl : `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+  const isAndroidApk = window.location.protocol === 'file:' && /Android|iPhone|iPad|iPod|cordova|capacitor/i.test(navigator.userAgent);
+  const proxyUrl = isAndroidApk ? targetUrl : `https://fragrant-shape-83a4.gimong9283.workers.dev/?url=${encodeURIComponent(targetUrl)}`;
   
   const response = await fetch(proxyUrl);
   if (!response.ok) {
@@ -708,7 +708,7 @@ function parseNaverHtml(htmlContent) {
   });
   
   const examples = allExamples.slice(0, 3);
-  const mainMeaning = meanings.slice(0, 3).join(", ");
+  const mainMeaning = meanings.slice(0, 3).join("\n");
   
   return {
     word: cleanWord.trim(),
@@ -722,8 +722,8 @@ async function fetchNaverAutocomplete(query) {
   const encodedQ = encodeURIComponent(query);
   const targetUrl = `https://ac-dict.naver.com/jako/ac?q=${encodedQ}&q_enc=utf-8&st=11&r_format=json&r_enc=utf-8&r_lt=11`;
   
-  const isApkEnv = window.location.protocol === 'file:';
-  const proxyUrl = isApkEnv ? targetUrl : `https://corsproxy.io/?${encodeURIComponent(targetUrl)}`;
+  const isAndroidApk = window.location.protocol === 'file:' && /Android|iPhone|iPad|iPod|cordova|capacitor/i.test(navigator.userAgent);
+  const proxyUrl = isAndroidApk ? targetUrl : `https://fragrant-shape-83a4.gimong9283.workers.dev/?url=${encodeURIComponent(targetUrl)}`;
   
   const response = await fetch(proxyUrl);
   if (!response.ok) {
@@ -1364,12 +1364,53 @@ const JLPT_N5_WORDS = [
     "meaning": "싫어하다/싫어함",
     "examples": [
       {
-        "japanese": "<ruby>辛<rt>から</rt></ruby>い<ruby>物<rt>もの</rt></ruby>が<ruby>嫌<rt>きら</rt></ruby>いだ。",
+        "japanese": "<ruby>辛<rt>から</rt></ruby>이 <ruby>物<rt>もの</rt></ruby>가 <ruby>嫌<rt>きら</rt></ruby>이다.",
         "korean": "매운 음식을 싫어한다."
       }
     ]
   }
-];)
+];
+
+function loadTodayRecommendation() {
+  const activeArea = document.getElementById('recommend-card-active');
+  const emptyArea = document.getElementById('recommend-card-empty');
+  const wordEl = document.getElementById('recommend-word');
+  const meaningEl = document.getElementById('recommend-meaning');
+  const exArea = document.getElementById('recommend-example-area');
+  const exJpEl = document.getElementById('recommend-ex-jp');
+  const exKoEl = document.getElementById('recommend-ex-ko');
+  
+  dbGetWords(false)
+    .then(savedWords => {
+      const savedSet = new Set(savedWords.map(w => w.word));
+      const available = JLPT_N5_WORDS.filter(w => !savedSet.has(w.word));
+      
+      if (available.length === 0) {
+        activeArea.classList.add('hidden');
+        emptyArea.classList.remove('hidden');
+        currentRecommendationWord = null;
+        return;
+      }
+      
+      activeArea.classList.remove('hidden');
+      emptyArea.classList.add('hidden');
+      
+      const randIdx = Math.floor(Math.random() * available.length);
+      const selectedWord = available[randIdx];
+      currentRecommendationWord = selectedWord;
+      
+      wordEl.innerHTML = buildRubyTag(selectedWord.word, selectedWord.hiragana);
+      meaningEl.innerHTML = renderMeaningsHTML(selectedWord.meaning);
+      
+      if (selectedWord.examples && selectedWord.examples.length > 0) {
+        const firstEx = selectedWord.examples[0];
+        exJpEl.innerHTML = firstEx.japanese;
+        exKoEl.innerText = firstEx.korean;
+        exArea.classList.remove('hidden');
+      } else {
+        exArea.classList.add('hidden');
+      }
+    })
     .catch(err => {
       console.error("Failed to load today recommendation:", err);
     });
@@ -1406,7 +1447,7 @@ function loadTodayDueWord() {
       // Build ruby tag
       const rubyHTML = buildRubyTag(selectedWord.word, selectedWord.hiragana);
       wordEl.innerHTML = rubyHTML;
-      meaningEl.innerText = selectedWord.meaning;
+      meaningEl.innerHTML = renderMeaningsHTML(selectedWord.meaning);
       
       if (selectedWord.examples && selectedWord.examples.length > 0) {
         const firstEx = selectedWord.examples[0];
@@ -1492,6 +1533,36 @@ function buildRubyTag(word, hiragana) {
 function isKanji(char) {
   const code = char.charCodeAt(0);
   return (code >= 0x4e00 && code <= 0x9faf);
+}
+
+function renderMeaningsHTML(meaningStr) {
+  if (!meaningStr) return '';
+  
+  let parts = [];
+  if (meaningStr.includes('\n')) {
+    parts = meaningStr.split('\n').map(p => p.trim()).filter(Boolean);
+  } else {
+    parts = meaningStr.split(',').map(p => p.trim()).filter(Boolean);
+  }
+  
+  if (parts.length === 0) return '';
+  
+  const mainMeaning = parts[0];
+  const otherMeanings = parts.slice(1, 4); // Max 3 additional meanings
+  
+  let html = `<div class="meaning-container">`;
+  html += `<div class="main-meaning">${mainMeaning}</div>`;
+  
+  if (otherMeanings.length > 0) {
+    html += `<div class="additional-meanings">`;
+    otherMeanings.forEach((m, idx) => {
+      html += `<span class="meaning-badge">${idx + 2}. ${m}</span>`;
+    });
+    html += `</div>`;
+  }
+  html += `</div>`;
+  
+  return html;
 }
 
 /* ========================================================
@@ -1662,11 +1733,22 @@ function setupSearchEvents() {
   btnSaveWord.addEventListener('click', () => {
     const word = document.getElementById('edit-word').value.trim();
     const hiragana = document.getElementById('edit-hiragana').value.trim();
-    const meaning = document.getElementById('edit-meaning').value.trim();
+    const mainMeaning = document.getElementById('edit-meaning').value.trim();
+    const additionalMeaning = document.getElementById('edit-meaning-additional') 
+      ? document.getElementById('edit-meaning-additional').value.trim() 
+      : '';
     
-    if (!word || !hiragana || !meaning) {
-      showToast('단어, 발음, 한국어 뜻은 필수 항목입니다.', false);
+    if (!word || !hiragana || !mainMeaning) {
+      showToast('단어, 발음, 메인 뜻은 필수 항목입니다.', false);
       return;
+    }
+    
+    let meaning = mainMeaning;
+    if (additionalMeaning) {
+      const addParts = additionalMeaning.split(',').map(p => p.trim()).filter(Boolean);
+      if (addParts.length > 0) {
+        meaning = [mainMeaning, ...addParts].join('\n');
+      }
     }
     
     const examples = [];
@@ -1714,7 +1796,26 @@ function renderSearchResult(data) {
   
   document.getElementById('edit-word').value = data.word || '';
   document.getElementById('edit-hiragana').value = data.hiragana || '';
-  document.getElementById('edit-meaning').value = data.meaning || '';
+  
+  const meaningStr = data.meaning || '';
+  let mainMeaning = meaningStr;
+  let additionalMeaning = '';
+  
+  if (meaningStr.includes('\n')) {
+    const parts = meaningStr.split('\n').map(p => p.trim()).filter(Boolean);
+    mainMeaning = parts[0] || '';
+    additionalMeaning = parts.slice(1).join(', ');
+  } else if (meaningStr.includes(',')) {
+    const parts = meaningStr.split(',').map(p => p.trim()).filter(Boolean);
+    mainMeaning = parts[0] || '';
+    additionalMeaning = parts.slice(1).join(', ');
+  }
+  
+  document.getElementById('edit-meaning').value = mainMeaning;
+  const additionalInput = document.getElementById('edit-meaning-additional');
+  if (additionalInput) {
+    additionalInput.value = additionalMeaning;
+  }
   
   const examplesContainer = document.getElementById('examples-edit-list');
   examplesContainer.innerHTML = '';
@@ -1857,7 +1958,7 @@ function renderCurrentCard() {
   document.getElementById('card-front-word').innerHTML = rubyHTML;
   document.getElementById('card-back-word').innerHTML = rubyHTML;
   document.getElementById('card-back-hiragana').innerText = currentWord.hiragana;
-  document.getElementById('card-back-meaning').innerText = currentWord.meaning;
+  document.getElementById('card-back-meaning').innerHTML = renderMeaningsHTML(currentWord.meaning);
   
   const exList = document.getElementById('card-back-examples');
   exList.innerHTML = '';
