@@ -6,6 +6,8 @@ let currentSearchData = null;
 const studyMode = 'flashcard'; // Fixed to flashcard mode
 let currentStudyMode = 'normal'; // 'normal' (spaced review) or 'test' (random test)
 let currentRecommendationWord = null;
+let currentDueWords = [];
+let currentDueWordIndex = 0;
 
 // IndexedDB Globals
 const DB_NAME = 'girigiri_db';
@@ -64,6 +66,9 @@ document.addEventListener('DOMContentLoaded', () => {
             loadStatistics();
           } else if (targetId === 'screen-settings') {
             loadSettings();
+          } else if (targetId === 'screen-input') {
+            loadTodayRecommendation();
+            loadTodayDueWord();
           }
         });
       });
@@ -72,12 +77,14 @@ document.addEventListener('DOMContentLoaded', () => {
       setupSearchEvents();
       setupStudyEvents();
       setupSettingsEvents();
+      setupGridEvents();
       
       // Initialize Badges & General Counts
       updateHeaderBadge();
 
       // Initialize Today's Recommendation Card
       loadTodayRecommendation();
+      loadTodayDueWord();
 
       // Today's Recommendation Interactive Events
       document.getElementById('btn-refresh-recommendation').addEventListener('click', (e) => {
@@ -773,35 +780,101 @@ function unescapeHtml(str) {
 /* ========================================================
    GLOBAL HELPERS & RENDER UTILS
    ======================================================== */
+const JLPT_N5_WORDS = [
+  { word: '行く', hiragana: 'いく', meaning: '가다', examples: [{ japanese: '図書館に行く。', korean: '도서관에 가다.' }] },
+  { word: '来る', hiragana: 'くる', meaning: '오다', examples: [{ japanese: '友達가家に来る。', korean: '친구들이 집에 오다.' }] }, // wait: 友達が家に来る
+  { word: '食べる', hiragana: 'たべる', meaning: '먹다', examples: [{ japanese: 'りんごを食べる。', korean: '사과를 먹다.' }] },
+  { word: '飲む', hiragana: 'のむ', meaning: '마시다', examples: [{ japanese: 'お水を飲む。', korean: '물을 마시다.' }] },
+  { word: '見る', hiragana: 'みる', meaning: '보다', examples: [{ japanese: '映画を見る。', korean: '영화의 보다.' }] },
+  { word: '聞く', hiragana: 'きく', meaning: '듣다/묻다', examples: [{ japanese: '音楽を聞く。', korean: '음악을 듣다.' }] },
+  { word: '話す', hiragana: 'はなす', meaning: '말하다', examples: [{ japanese: '日本語で話す。', korean: '일본어로 말하다.' }] },
+  { word: '読む', hiragana: 'よむ', meaning: '읽다', examples: [{ japanese: '本を読む。', korean: '책을 읽다.' }] },
+  { word: '書く', hiragana: 'かく', meaning: '쓰다', examples: [{ japanese: '手紙を書く。', korean: '편지를 쓰다.' }] },
+  { word: '買う', hiragana: 'かう', meaning: '사다', examples: [{ japanese: '服を買う。', korean: '옷을 사다.' }] },
+  { word: '会う', hiragana: 'あう', meaning: '만나다', examples: [{ japanese: '友達に会う。', korean: '친구를 만나다.' }] },
+  { word: '勉強する', hiragana: 'べんきょうする', meaning: '공부하다', examples: [{ japanese: '日本語を勉強する。', korean: '일본어를 공부하다.' }] },
+  { word: '大きい', hiragana: 'おおきい', meaning: '크다', examples: [{ japanese: '大きい家。', korean: '큰 집.' }] },
+  { word: '小さい', hiragana: 'ちいさい', meaning: '작다', examples: [{ japanese: '小さい猫。', korean: '작은 고양이.' }] },
+  { word: '新しい', hiragana: 'あたらしい', meaning: '새롭다', examples: [{ japanese: '新しい携帯。', korean: '새 휴대폰.' }] },
+  { word: '古い', hiragana: 'ふるい', meaning: '오래되다/낡다', examples: [{ japanese: '古い本。', korean: '오래된 책.' }] },
+  { word: '良い', hiragana: 'いい', meaning: '좋다', examples: [{ japanese: '天気がいい。', korean: '날씨가 좋다.' }] },
+  { word: '悪い', hiragana: 'わるい', meaning: '나쁘다', examples: [{ japanese: '気分が悪い。', korean: '기분이 나쁘다.' }] },
+  { word: '高い', hiragana: 'たかい', meaning: '높다/비싸다', examples: [{ japanese: '値段が高い。', korean: '가격이 비싸다.' }] },
+  { word: '安い', hiragana: 'やすい', meaning: '싸다', examples: [{ japanese: '値段が安い。', korean: '가격이 싸다.' }] },
+  { word: '暑い', hiragana: 'あつい', meaning: '덥다', examples: [{ japanese: '今日はずいぶん暑い。', korean: '오늘은 꽤 덥다.' }] },
+  { word: '寒い', hiragana: 'さむい', meaning: '춥다', examples: [{ japanese: '外はとても寒い。', korean: '밖은 매우 춥다.' }] },
+  { word: '難しい', hiragana: 'むずかしい', meaning: '어렵다', examples: [{ japanese: '試験は難しい。', korean: '시험은 어렵다.' }] },
+  { word: '易しい', hiragana: 'やさしい', meaning: '쉽다', examples: [{ japanese: '問題は易しい。', korean: '문제는 쉽다.' }] },
+  { word: '友達', hiragana: 'ともだ치', meaning: '친구', examples: [{ japanese: '私たちは友達だ。', korean: '우리는 친구다.' }] }, // wait: ともだち
+  { word: '先生', hiragana: 'せんせい', meaning: '선생님', examples: [{ japanese: '日本語の先生。', korean: '일본어 선생님.' }] },
+  { word: '学生', hiragana: 'がくせい', meaning: '학생', examples: [{ japanese: '私は学生です。', korean: '저는 학생입니다.' }] },
+  { word: '学校', hiragana: 'がっこう', meaning: '학교', examples: [{ japanese: '学校に行く。', korean: '학교에 가다.' }] },
+  { word: '日本', hiragana: 'にほん', meaning: '일본', examples: [{ japanese: '日本に行きたい。', korean: '일본에 가고 싶다.' }] },
+  { word: '韓国', hiragana: 'かんこく', meaning: '한국', examples: [{ japanese: '韓国のソウル。', korean: '한국의 서울.' }] },
+  { word: '家', hiragana: 'いえ', meaning: '집', examples: [{ japanese: '家に帰る。', korean: '집에 돌아가다.' }] },
+  { word: '部屋', hiragana: 'へや', meaning: '방', examples: [{ japanese: '部屋が広い。', korean: '방이 넓다.' }] },
+  { word: '時計', hiragana: 'とけい', meaning: '시계', examples: [{ japanese: '壁の時計。', korean: '벽시계.' }] },
+  { word: '電話', hiragana: 'でんわ', meaning: '전화', examples: [{ japanese: '電話をかける。', korean: '전화를 걸다.' }] },
+  { word: '傘', hiragana: 'かさ', meaning: '우산', examples: [{ japanese: '傘を사す。', korean: '우산을 쓰다.' }] }, // wait: 傘をさす
+  { word: '車', hiragana: 'くるま', meaning: '자동차', examples: [{ japanese: '新しい車。', korean: '새 차.' }] },
+  { word: '自転車', hiragana: 'じてんしゃ', meaning: '자전거', examples: [{ japanese: '自転車に乗る。', korean: '자전거를 타다.' }] },
+  { word: '電車', hiragana: 'でんしゃ', meaning: '전철', examples: [{ japanese: '電車に乗る。', korean: '전철을 타다.' }] },
+  { word: '水', hiragana: 'みず', meaning: '물', examples: [{ japanese: '水を飲む。', korean: '물을 마시다.' }] },
+  { word: 'お茶', hiragana: 'おちゃ', meaning: '차', examples: [{ japanese: '温かいお茶。', korean: '따뜻한 차.' }] },
+  { word: '朝', hiragana: 'あさ', meaning: '아침', examples: [{ japanese: '朝起きる。', korean: '아침에 일어나다.' }] },
+  { word: '昼', hiragana: 'ひる', meaning: '낮', examples: [{ japanese: '昼ご飯を食べる。', korean: '점심을 먹다.' }] },
+  { word: '夜', hiragana: 'よる', meaning: '밤', examples: [{ japanese: '夜遅く寝る。', korean: '밤 늦게 자다.' }] },
+  { word: '今日', hiragana: 'きょう', meaning: '오늘', examples: [{ japanese: '今日は何曜日？', korean: '오늘은 무슨 요일?' }] },
+  { word: '明日', hiragana: 'あした', meaning: '내일', examples: [{ japanese: '明日会おう。', korean: '내일 만나자.' }] },
+  { word: '昨日', hiragana: 'きのう', meaning: '어제', examples: [{ japanese: '昨日あったこと。', korean: '어제 있었던 일.' }] },
+  { word: '楽しい', hiragana: 'たのしい', meaning: '즐겁다', examples: [{ japanese: '旅行は楽しい。', korean: '여행은 즐겁다.' }] },
+  { word: '面白い', hiragana: 'おもしろい', meaning: '재미있다', examples: [{ japanese: '映画が面白い。', korean: '영화가 재미있다.' }] },
+  { word: '好き', hiragana: 'すき', meaning: '좋아하다/좋아함', examples: [{ japanese: '日本料理が好きだ。', korean: '일본 요리를 좋아한다.' }] },
+  { word: '嫌い', hiragana: 'きらい', meaning: '싫어하다/싫어함', examples: [{ japanese: '辛い物が嫌いだ。', korean: '매운 음식을 싫어한다.' }] }
+];
+
+// Correct minor typos in the literal strings:
+// 友達가家に来る -> 友達が家に来る
+// 友達に会う -> 友達に会う
+// 傘を사す -> 傘をさす
+// ともだ치 -> ともだち
+for (let item of JLPT_N5_WORDS) {
+  if (item.word === '来る') item.examples[0].japanese = '友達が家に来る。';
+  if (item.word === '友達') item.hiragana = 'ともだち';
+  if (item.word === '傘') item.examples[0].japanese = '傘をさす。';
+}
+
 function loadTodayRecommendation() {
-  const area = document.getElementById('recommendation-card-area');
+  const activeArea = document.getElementById('recommend-card-active');
+  const emptyArea = document.getElementById('recommend-card-empty');
   const wordEl = document.getElementById('recommend-word');
   const meaningEl = document.getElementById('recommend-meaning');
   const exArea = document.getElementById('recommend-example-area');
   const exJpEl = document.getElementById('recommend-ex-jp');
   const exKoEl = document.getElementById('recommend-ex-ko');
   
-  dbGetWords(false) // Get all words
-    .then(words => {
-      let selectedWord = null;
-      if (words.length === 0) {
-        // Default Welcome Word
-        selectedWord = {
-          word: 'ありがとう',
-          hiragana: 'ありがとう',
-          meaning: '고맙습니다, 감사합니다',
-          examples: [
-            {
-              japanese: 'お越しいただき、ありがとうございます。',
-              korean: '와 주셔서 감사합니다.'
-            }
-          ]
-        };
-      } else {
-        // Randomly select one
-        const randIdx = Math.floor(Math.random() * words.length);
-        selectedWord = words[randIdx];
+  dbGetWords(false) // Get all saved words
+    .then(savedWords => {
+      // 1. 단어장에 있는 단어들을 Set으로 수집 (중복 추천 방지)
+      const savedSet = new Set(savedWords.map(w => w.word));
+      
+      // 2. 단어장에 없는 JLPT N5 단어만 필터링
+      const available = JLPT_N5_WORDS.filter(w => !savedSet.has(w.word));
+      
+      if (available.length === 0) {
+        // 추천할 단어가 모두 바닥났을 때 (다 저장한 상태)
+        activeArea.classList.add('hidden');
+        emptyArea.classList.remove('hidden');
+        currentRecommendationWord = null;
+        return;
       }
+      
+      // 3. 필터링된 단어 중 무작위 선택
+      activeArea.classList.remove('hidden');
+      emptyArea.classList.add('hidden');
+      
+      const randIdx = Math.floor(Math.random() * available.length);
+      const selectedWord = available[randIdx];
       
       currentRecommendationWord = selectedWord;
       
@@ -818,11 +891,56 @@ function loadTodayRecommendation() {
       } else {
         exArea.classList.add('hidden');
       }
-      
-      area.classList.remove('hidden');
     })
     .catch(err => {
       console.error("Failed to load today recommendation:", err);
+    });
+}
+
+function loadTodayDueWord() {
+  const activeArea = document.getElementById('due-card-active');
+  const emptyArea = document.getElementById('due-card-empty');
+  const wordEl = document.getElementById('due-word');
+  const meaningEl = document.getElementById('due-meaning');
+  const exArea = document.getElementById('due-example-area');
+  const exJpEl = document.getElementById('due-ex-jp');
+  const exKoEl = document.getElementById('due-ex-ko');
+  
+  dbGetWords(true) // Get due words only
+    .then(words => {
+      currentDueWords = words;
+      
+      if (words.length === 0) {
+        activeArea.classList.add('hidden');
+        emptyArea.classList.remove('hidden');
+        return;
+      }
+      
+      activeArea.classList.remove('hidden');
+      emptyArea.classList.add('hidden');
+      
+      if (currentDueWordIndex >= words.length) {
+        currentDueWordIndex = 0;
+      }
+      
+      const selectedWord = words[currentDueWordIndex];
+      
+      // Build ruby tag
+      const rubyHTML = buildRubyTag(selectedWord.word, selectedWord.hiragana);
+      wordEl.innerHTML = rubyHTML;
+      meaningEl.innerText = selectedWord.meaning;
+      
+      if (selectedWord.examples && selectedWord.examples.length > 0) {
+        const firstEx = selectedWord.examples[0];
+        exJpEl.innerText = firstEx.japanese;
+        exKoEl.innerText = firstEx.korean;
+        exArea.classList.remove('hidden');
+      } else {
+        exArea.classList.add('hidden');
+      }
+    })
+    .catch(err => {
+      console.error("Failed to load today due word:", err);
     });
 }
 function showToast(message, isSuccess = true) {
@@ -907,14 +1025,18 @@ function setupSearchEvents() {
   const btnSaveWord = document.getElementById('btn-save-word');
   
   const handleSearch = () => {
-    const word = searchInput.value.trim();
+    // 최종 변환을 적용하여 단어 끝의 'n'을 'ん'으로 완료 처리합니다.
+    const converted = convertRomajiToHiragana(searchInput.value, true);
+    searchInput.value = converted;
+    
+    const word = converted.trim();
     if (!word) {
       showToast('검색할 일본어 단어를 입력하세요.', false);
       return;
     }
     
     // 검색 시작 시 추천 카드 영역 숨기기
-    document.getElementById('recommendation-card-area').classList.add('hidden');
+    document.getElementById('input-cards-grid').classList.add('hidden');
     document.getElementById('search-result-area').classList.add('hidden');
     document.getElementById('search-loading').classList.remove('hidden');
     
@@ -926,10 +1048,11 @@ function setupSearchEvents() {
       })
       .catch(err => {
         showToast('단어 정보를 사전에서 찾지 못했습니다. 직접 입력해주세요.', false);
-        // Fallback: Show empty edit boxes to type manually
+        // 검색어에 일본어(히라가나/가타카나)가 포함되어 있으면 발음 필드에 기본값으로 설정
+        const queryIsJapanese = /[\u3040-\u309F\u30A0-\u30FF]/.test(word);
         renderSearchResult({
           word: word,
-          hiragana: '',
+          hiragana: queryIsJapanese ? word : '',
           meaning: '',
           examples: []
         });
@@ -956,18 +1079,19 @@ function setupSearchEvents() {
 
   searchInput.addEventListener('input', () => {
     const originalValue = searchInput.value;
-    const convertedValue = convertRomajiToHiragana(originalValue);
+    const convertedValue = convertRomajiToHiragana(originalValue, false);
     if (originalValue !== convertedValue) {
       searchInput.value = convertedValue;
     }
     
-    const query = searchInput.value.trim();
+    // 자동완성 API를 호출할 때는 현재 입력값에 대한 최종 변환('n' -> 'ん')을 적용하여 쿼리합니다.
+    const query = convertRomajiToHiragana(searchInput.value, true).trim();
     clearTimeout(debounceTimeout);
     
     if (!query) {
       hideDropdown();
       // 검색창이 비면 다시 추천 카드 보이기
-      document.getElementById('recommendation-card-area').classList.remove('hidden');
+      document.getElementById('input-cards-grid').classList.remove('hidden');
       return;
     }
     
@@ -1089,7 +1213,8 @@ function setupSearchEvents() {
         
         // 추천 카드 리프레시 및 강제 표시
         loadTodayRecommendation();
-        document.getElementById('recommendation-card-area').classList.remove('hidden');
+        loadTodayDueWord();
+        document.getElementById('input-cards-grid').classList.remove('hidden');
       })
       .catch(err => {
         showToast('단어 저장에 실패했습니다. 다시 시도해주세요.', false);
@@ -1599,14 +1724,14 @@ const ROMAJI_MAP = {
   'a': 'あ', 'i': 'い', 'u': 'う', 'e': 'え', 'o': 'お'
 };
 
-function convertRomajiToHiragana(text) {
+function convertRomajiToHiragana(text, isFinal = false) {
   if (!text) return "";
   
   let converted = text.toLowerCase();
   
-  // 1. Double consonants (촉음)
+  // 1. Double consonants (촉음) - n 계열은 여기서 줄이지 않고 그대로 유지
   converted = converted.replace(/([bcdfghjklmpqrstvwxyz])\1/g, (match, p1) => {
-    return p1 === 'n' ? 'n' : 'っ' + p1;
+    return p1 === 'n' ? 'nn' : 'っ' + p1;
   });
   
   // 2. Extra correction mapping
@@ -1628,8 +1753,83 @@ function convertRomajiToHiragana(text) {
     converted = converted.replaceAll(key, correctedMap[key]);
   }
   
+  // nn을 ん으로 직접 치환 (na, ni, nu, ne, no 등 모음 결합 처리 완료 후 남은 nn 대상)
+  converted = converted.replaceAll('nn', 'ん');
+  
   // 4. Handle end 'n' -> 'ん'
-  converted = converted.replace(/n(?![aeiouy])/g, 'ん');
+  if (isFinal) {
+    converted = converted.replace(/n(?![aeiouy])/g, 'ん');
+  } else {
+    // 실시간 타이핑 시에는 단어 끝의 n을 ん으로 성급하게 변환하지 않음 (모음 입력 대기)
+    converted = converted.replace(/n(?![aeiouy]|$)/g, 'ん');
+  }
   
   return converted;
+}
+
+
+function setupGridEvents() {
+  // 1. 추천 단어장 저장 버튼
+  const btnSaveRec = document.getElementById('btn-save-recommend');
+  if (btnSaveRec) {
+    btnSaveRec.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (currentRecommendationWord) {
+        const payload = {
+          word: currentRecommendationWord.word,
+          hiragana: currentRecommendationWord.hiragana,
+          meaning: currentRecommendationWord.meaning,
+          examples: currentRecommendationWord.examples || []
+        };
+        dbAddWord(payload)
+          .then(() => {
+            showToast(`'${payload.word}' 단어가 저장되었습니다!`, true);
+            updateHeaderBadge();
+            loadTodayRecommendation();
+            loadTodayDueWord();
+          })
+          .catch(err => {
+            showToast('단어 저장 실패', false);
+            console.error(err);
+          });
+      }
+    });
+  }
+
+  // 2. 복습 단어 새로고침 버튼
+  const btnRefreshDue = document.getElementById('btn-refresh-due');
+  if (btnRefreshDue) {
+    btnRefreshDue.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (currentDueWords.length > 0) {
+        currentDueWordIndex = (currentDueWordIndex + 1) % currentDueWords.length;
+        loadTodayDueWord();
+      } else {
+        showToast('오늘 복습할 단어가 더 이상 없습니다.', true);
+      }
+    });
+  }
+
+  // 3. 복습 단어 TTS 재생 버튼
+  const btnTtsDue = document.getElementById('btn-tts-due');
+  if (btnTtsDue) {
+    btnTtsDue.addEventListener('click', (e) => {
+      e.stopPropagation();
+      if (currentDueWords.length > 0 && currentDueWordIndex < currentDueWords.length) {
+        speakJapanese(currentDueWords[currentDueWordIndex].word);
+      }
+    });
+  }
+
+  // 4. 복습 바로가기 버튼
+  const btnQuickStudy = document.getElementById('btn-quick-study');
+  if (btnQuickStudy) {
+    btnQuickStudy.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const studyTab = document.querySelector('[data-target="screen-study"]');
+      if (studyTab) {
+        studyTab.click();
+      }
+    });
+  }
 }

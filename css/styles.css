@@ -1443,6 +1443,18 @@ rt {
 /* ========================================================
    9. Recommendation Card & Mode Switcher Styling
    ======================================================== */
+.input-cards-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+  margin-top: 15px;
+  margin-bottom: 24px;
+}
+
+.input-cards-grid .recommend-card {
+  margin: 0;
+}
+
 .recommend-card {
   padding: 20px;
   margin-top: 15px;

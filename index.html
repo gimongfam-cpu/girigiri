@@ -60,27 +60,79 @@
           </button>
         </div>
 
-        <!-- 오늘의 추천 단어 카드 영역 -->
-        <div id="recommendation-card-area" class="recommend-card bg-glass">
-          <div class="recommend-card-header">
-            <span class="recommend-tag"><i data-lucide="sparkles"></i> 기리기리 기억할 단어</span>
-            <button id="btn-refresh-recommendation" class="icon-btn" title="다른 단어 추천받기">
-              <i data-lucide="refresh-cw"></i>
-            </button>
-          </div>
-          <div class="recommend-card-body">
-            <div class="recommend-word-row">
-              <div class="recommend-word-display" id="recommend-word"></div>
-              <button class="tts-btn" id="btn-tts-recommend" title="발음 듣기">
-                <i data-lucide="volume-2"></i>
+        <!-- 반응형 그리드 영역: 추천 단어 + 오늘 외워야 할 단어 -->
+        <div id="input-cards-grid" class="input-cards-grid">
+          <!-- 오늘의 추천 단어 카드 영역 -->
+          <div id="recommendation-card-area" class="recommend-card bg-glass">
+            <div class="recommend-card-header">
+              <span class="recommend-tag"><i data-lucide="sparkles"></i> N5 추천 단어</span>
+              <button id="btn-refresh-recommendation" class="icon-btn" title="다른 단어 추천받기">
+                <i data-lucide="refresh-cw"></i>
               </button>
             </div>
-            <div class="recommend-meaning" id="recommend-meaning"></div>
-            
-            <div id="recommend-example-area" class="recommend-example-section hidden">
-              <span class="section-title">추천 예문</span>
-              <p class="recommend-ex-jp" id="recommend-ex-jp"></p>
-              <p class="recommend-ex-ko" id="recommend-ex-ko"></p>
+            <div class="recommend-card-body">
+              <div id="recommend-card-active">
+                <div class="recommend-word-row">
+                  <div class="recommend-word-display" id="recommend-word"></div>
+                  <button class="tts-btn" id="btn-tts-recommend" title="발음 듣기">
+                    <i data-lucide="volume-2"></i>
+                  </button>
+                </div>
+                <div class="recommend-meaning" id="recommend-meaning"></div>
+                
+                <div id="recommend-example-area" class="recommend-example-section hidden">
+                  <span class="section-title">추천 예문</span>
+                  <p class="recommend-ex-jp" id="recommend-ex-jp"></p>
+                  <p class="recommend-ex-ko" id="recommend-ex-ko"></p>
+                </div>
+                
+                <button id="btn-save-recommend" class="success-btn full-width-btn" style="margin-top: 12px; height: 38px; font-size: 0.85rem; border-radius: 12px; background: linear-gradient(135deg, #10b981 0%, #059669 100%);">
+                  <i data-lucide="plus-circle"></i> 단어장에 바로 추가
+                </button>
+              </div>
+              
+              <div id="recommend-card-empty" class="hidden" style="text-align: center; padding: 20px 10px;">
+                <i data-lucide="award" class="text-success" style="width: 32px; height: 32px; margin-bottom: 8px;"></i>
+                <p style="font-size: 0.9rem; font-weight: 600; color: #fff;">모든 N5 단어를 마스터했습니다!</p>
+                <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 4px;">새로운 단어 추가를 계속해주세요.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- 오늘 외워야 할 단어 카드 영역 -->
+          <div id="due-card-area" class="recommend-card bg-glass">
+            <div class="recommend-card-header">
+              <span class="recommend-tag" style="color: var(--color-warning);"><i data-lucide="book-open"></i> 오늘 외워야 할 단어</span>
+              <button id="btn-refresh-due" class="icon-btn" title="다른 복습 단어 보기">
+                <i data-lucide="refresh-cw"></i>
+              </button>
+            </div>
+            <div class="recommend-card-body">
+              <div id="due-card-active">
+                <div class="recommend-word-row">
+                  <div class="recommend-word-display" id="due-word"></div>
+                  <button class="tts-btn" id="btn-tts-due" title="발음 듣기">
+                    <i data-lucide="volume-2"></i>
+                  </button>
+                </div>
+                <div class="recommend-meaning" id="due-meaning"></div>
+                
+                <div id="due-example-area" class="recommend-example-section hidden">
+                  <span class="section-title">복습 예문</span>
+                  <p class="recommend-ex-jp" id="due-ex-jp"></p>
+                  <p class="recommend-ex-ko" id="due-ex-ko"></p>
+                </div>
+                
+                <button id="btn-quick-study" class="primary-btn full-width-btn" style="margin-top: 12px; height: 38px; font-size: 0.85rem; border-radius: 12px; background: linear-gradient(135deg, #6366f1 0%, #4f46e5 100%);">
+                  <i data-lucide="play"></i> 지금 복습 시작하기
+                </button>
+              </div>
+              
+              <div id="due-card-empty" class="hidden" style="text-align: center; padding: 25px 10px;">
+                <i data-lucide="check-circle-2" class="text-success" style="width: 32px; height: 32px; margin-bottom: 8px; color: #10b981;"></i>
+                <p style="font-size: 0.9rem; font-weight: 600; color: #fff;">오늘 외울 단어가 없습니다! 🎉</p>
+                <p style="font-size: 0.75rem; color: var(--color-text-muted); margin-top: 4px;">복습할 단어가 전부 암기되었습니다.</p>
+              </div>
             </div>
           </div>
         </div>
