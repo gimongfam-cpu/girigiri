@@ -167,15 +167,16 @@ function sanitizeDatabase() {
       if (cursor) {
         const wordData = cursor.value;
         const containsHangul = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(wordData.word || '');
-        if (containsHangul) {
-          console.warn("Deleting invalid Korean entry from db:", wordData.word);
+        const containsKanjiInHira = containsKanji(wordData.hiragana || '');
+        if (containsHangul || containsKanjiInHira) {
+          console.warn("Deleting invalid entry from db:", wordData.word, "hiragana:", wordData.hiragana);
           cursor.delete();
           deletedCount++;
         }
         cursor.continue();
       } else {
         if (deletedCount > 0) {
-          showToast(`잘못 등록된 한국어 단어 ${deletedCount}개가 정리되었습니다.`, false);
+          showToast(`잘못 등록된 단어 ${deletedCount}개가 정리되었습니다.`, false);
           setTimeout(() => {
             updateHeaderBadge();
             loadTodayRecommendation();
@@ -1007,7 +1008,7 @@ const JLPT_N5_WORDS = [
     ]
   },
   {
-    "word": "會う",
+    "word": "会う",
     "hiragana": "あう",
     "meaning": "만나다",
     "examples": [
@@ -1476,7 +1477,7 @@ function loadTodayRecommendation() {
       const selectedWord = available[randIdx];
       currentRecommendationWord = selectedWord;
       
-      wordEl.innerHTML = buildRubyTag(selectedWord.word, selectedWord.hiragana);
+      wordEl.innerHTML = `<span class="word-ruby-view">${buildRubyTag(selectedWord.word, selectedWord.hiragana)}</span><span class="word-kana-view">${selectedWord.hiragana}</span>`;
       meaningEl.innerHTML = renderMeaningsHTML(selectedWord.meaning);
       
       if (selectedWord.examples && selectedWord.examples.length > 0) {
@@ -1523,7 +1524,7 @@ function loadTodayDueWord() {
       
       // Build ruby tag
       const rubyHTML = buildRubyTag(selectedWord.word, selectedWord.hiragana);
-      wordEl.innerHTML = rubyHTML;
+      wordEl.innerHTML = `<span class="word-ruby-view">${rubyHTML}</span><span class="word-kana-view">${selectedWord.hiragana}</span>`;
       meaningEl.innerHTML = renderMeaningsHTML(selectedWord.meaning);
       
       if (selectedWord.examples && selectedWord.examples.length > 0) {
@@ -1610,6 +1611,14 @@ function buildRubyTag(word, hiragana) {
 function isKanji(char) {
   const code = char.charCodeAt(0);
   return (code >= 0x4e00 && code <= 0x9faf);
+}
+
+function containsKanji(str) {
+  if (!str) return false;
+  for (let i = 0; i < str.length; i++) {
+    if (isKanji(str[i])) return true;
+  }
+  return false;
 }
 
 function renderMeaningsHTML(meaningStr) {
@@ -1822,6 +1831,11 @@ function setupSearchEvents() {
     
     if (/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(word)) {
       showToast('단어(한자/표기)에는 한국어가 포함될 수 없습니다. 일본어 단어만 등록 가능합니다.', false);
+      return;
+    }
+
+    if (containsKanji(hiragana)) {
+      showToast('발음(히라가나/요미가나) 필드에는 한자가 포함될 수 없습니다. 올바른 발음으로 입력해 주세요.', false);
       return;
     }
     
@@ -2078,10 +2092,10 @@ function renderCurrentCard() {
   const rubyHTML = buildRubyTag(currentWord.word, currentWord.hiragana);
   
   const frontWordEl = document.getElementById('card-front-word');
-  frontWordEl.innerHTML = rubyHTML;
-  adjustCardWordFontSize(frontWordEl, currentWord.word);
+  frontWordEl.innerHTML = `<span class="word-ruby-view">${rubyHTML}</span><span class="word-kana-view">${currentWord.hiragana}</span>`;
+  adjustCardWordFontSize(frontWordEl, currentWord.word, currentWord.hiragana);
   
-  document.getElementById('card-back-word').innerHTML = rubyHTML;
+  document.getElementById('card-back-word').innerHTML = `<span class="word-ruby-view">${rubyHTML}</span><span class="word-kana-view">${currentWord.hiragana}</span>`;
   document.getElementById('card-back-hiragana').innerText = currentWord.hiragana;
   document.getElementById('card-back-meaning').innerHTML = renderMeaningsHTML(currentWord.meaning);
   
@@ -2117,9 +2131,9 @@ function renderCurrentCard() {
   document.getElementById('study-accuracy-text').innerText = `오늘의 성공: ${accuracy}%`;
 }
 
-function adjustCardWordFontSize(element, word) {
+function adjustCardWordFontSize(element, word, hiragana) {
   if (!element || !word) return;
-  const len = word.length;
+  const len = Math.max(word.length, (hiragana || '').length);
   if (len <= 4) {
     element.style.fontSize = '3.2rem';
   } else if (len <= 6) {

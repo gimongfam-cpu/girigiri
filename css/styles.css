@@ -1143,6 +1143,33 @@ body.hide-furigana rt {
   display: none !important;
 }
 
+body.hide-furigana .card-back rt {
+  display: inline !important;
+}
+
+/* Ruby vs Kana-only view toggle classes */
+.word-ruby-view {
+  display: inline-block;
+}
+.word-kana-view {
+  display: none !important;
+}
+
+body.hide-furigana .word-ruby-view {
+  display: none !important;
+}
+body.hide-furigana .word-kana-view {
+  display: inline-block !important;
+}
+
+/* Keep ruby visible on the card back even when furigana is hidden globally */
+body.hide-furigana .card-back .word-ruby-view {
+  display: inline-block !important;
+}
+body.hide-furigana .card-back .word-kana-view {
+  display: none !important;
+}
+
 /* 요미가나 루비 서체 조정 */
 ruby {
   ruby-position: over;
