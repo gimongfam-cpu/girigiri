@@ -14,6 +14,16 @@ const DB_NAME = 'girigiri_db';
 const DB_VERSION = 1;
 let db = null;
 
+function safeCreateIcons() {
+  if (typeof lucide !== 'undefined') {
+    try {
+      lucide.createIcons();
+    } catch (e) {
+      console.warn("Lucide icons rendering failed:", e);
+    }
+  }
+}
+
 // PWA Service Worker Registration
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
@@ -37,7 +47,7 @@ document.addEventListener('DOMContentLoaded', () => {
   updateThemeButtonUI();
 
   // Initialize Lucide Icons
-  lucide.createIcons();
+  safeCreateIcons();
 
   // Initialize IndexedDB first, then load UI
   initIndexedDB()
@@ -81,6 +91,24 @@ document.addEventListener('DOMContentLoaded', () => {
       setupStudyEvents();
       setupSettingsEvents();
       setupGridEvents();
+      
+      // Setup URL action routing for PWA shortcuts
+      const urlParams = new URLSearchParams(window.location.search);
+      const action = urlParams.get('action');
+      if (action) {
+        let targetTab = null;
+        if (action === 'study') {
+          targetTab = document.querySelector('.nav-item[data-target="screen-study"]');
+        } else if (action === 'search' || action === 'input') {
+          targetTab = document.querySelector('.nav-item[data-target="screen-input"]');
+        } else if (action === 'stats') {
+          targetTab = document.querySelector('.nav-item[data-target="screen-stats"]');
+        }
+        
+        if (targetTab) {
+          targetTab.click();
+        }
+      }
       
       // Initialize Badges & General Counts
       updateHeaderBadge();
@@ -166,9 +194,10 @@ function sanitizeDatabase() {
       const cursor = event.target.result;
       if (cursor) {
         const wordData = cursor.value;
-        const containsHangul = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(wordData.word || '');
+        const containsHangulInWord = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(wordData.word || '');
+        const containsHangulInHira = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(wordData.hiragana || '');
         const containsKanjiInHira = containsKanji(wordData.hiragana || '');
-        if (containsHangul || containsKanjiInHira) {
+        if (containsHangulInWord || containsHangulInHira || containsKanjiInHira) {
           console.warn("Deleting invalid entry from db:", wordData.word, "hiragana:", wordData.hiragana);
           cursor.delete();
           deletedCount++;
@@ -328,29 +357,58 @@ function dbReviewWord(wordId, score, isTestMode = false) {
         let interval = word.interval || 1;
         let efactor = word.efactor || 2.5;
         
-        // SM-2 Spaced Repetition Algorithm
+        // SM-2 Spaced Repetition Algorithm with custom Perfect (score 5) consecutive rules
         if (score === 1) {
           repetition = 0;
           interval = 1;
           efactor = Math.max(1.3, efactor - 0.2);
+          word.perfect_count = 0; // Reset consecutive perfect count
         } else if (score === 4) {
-          repetition += 1;
-          if (repetition === 1) {
-            interval = 1;
-          } else if (repetition === 2) {
-            interval = 4;
+          let perfectCount = word.perfect_count || 0;
+          if (perfectCount > 0) {
+            // "완벽해" 단계의 단어에서 "비슷해(암기중)"을 누르면 한 단계 강등
+            if (perfectCount >= 4) {
+              perfectCount = 3; // 30일 -> 14일
+              interval = 14;
+            } else if (perfectCount === 3) {
+              perfectCount = 2; // 14일 -> 7일
+              interval = 7;
+            } else if (perfectCount === 2) {
+              perfectCount = 1; // 7일 -> 2일
+              interval = 2;
+            } else {
+              perfectCount = 0; // 2일 -> 1일
+              interval = 1;
+            }
+            word.perfect_count = perfectCount;
+            repetition = Math.max(1, perfectCount);
           } else {
-            interval = Math.round(interval * efactor);
+            // 일반 학습 단어는 기존 SM-2 알고리즘 실행
+            repetition += 1;
+            word.perfect_count = 0;
+            if (repetition === 1) {
+              interval = 1;
+            } else if (repetition === 2) {
+              interval = 4;
+            } else {
+              interval = Math.round(interval * efactor);
+            }
           }
         } else if (score === 5) {
           repetition += 1;
           efactor = Math.min(2.8, efactor + 0.15);
-          if (repetition === 1) {
-            interval = 2;
-          } else if (repetition === 2) {
-            interval = 6;
+          
+          let perfectCount = (word.perfect_count || 0) + 1;
+          word.perfect_count = perfectCount;
+          
+          if (perfectCount === 1) {
+            interval = 2; // 2 days
+          } else if (perfectCount === 2) {
+            interval = 7; // 1 week
+          } else if (perfectCount === 3) {
+            interval = 14; // 14 days
           } else {
-            interval = Math.round(interval * efactor * 1.2);
+            interval = 30; // 30 days
           }
         }
         
@@ -630,7 +688,8 @@ function dbImportData(jsonData) {
           exposure_count: item.exposure_count || 0,
           tag: item.tag || null,
           created_at: item.created_at || new Date().toISOString(),
-          examples: item.examples || []
+          examples: item.examples || [],
+          perfect_count: item.perfect_count || 0
         };
         wordStore.add(wordRecord);
       });
@@ -667,7 +726,7 @@ async function fetchNaverDictionaryData(word) {
   }
   const htmlContent = await response.text();
   
-  return parseNaverHtml(htmlContent);
+  return parseNaverHtml(htmlContent, word);
 }
 
 function extractJapaneseWords(meanings) {
@@ -698,7 +757,7 @@ function extractJapaneseWords(meanings) {
   return words.slice(0, 8);
 }
 
-function parseNaverHtml(htmlContent) {
+function parseNaverHtml(htmlContent, query) {
   // Find window.__NUXT__=(function...)(...)
   const match = htmlContent.match(/window\.__NUXT__\s*=\s*([\s\S]*?)(?:<\/script>|$)/);
   if (!match) {
@@ -739,8 +798,14 @@ function parseNaverHtml(htmlContent) {
   
   const rawWord = firstItem.expKanji || firstItem.entryName || '';
   const cleanWord = stripHtmlTags(unescapeHtml(rawWord));
-  const hiraganaRaw = firstItem.entryName || '';
-  const hiragana = stripHtmlTags(unescapeHtml(hiraganaRaw));
+  
+  const hiragana = cleanCrawledHiragana(
+    firstItem.entryName,
+    firstItem.expKanji,
+    firstItem.expMeaningRead,
+    firstItem.expAudioRead,
+    query
+  );
   
   const meanings = [];
   const allExamples = [];
@@ -858,6 +923,73 @@ async function fetchNaverAutocomplete(query) {
 function stripHtmlTags(str) {
   if (!str) return '';
   return str.replace(/<[^>]*>/g, '');
+}
+
+function cleanCrawledHiragana(entryName, expKanji, expMeaningRead, expAudioRead, query) {
+  const cleanEntry = stripHtmlTags(unescapeHtml(entryName || '')).trim();
+  const cleanKanji = stripHtmlTags(unescapeHtml(expKanji || '')).trim();
+  const cleanMeaning = stripHtmlTags(unescapeHtml(expMeaningRead || '')).trim();
+  const cleanAudio = stripHtmlTags(unescapeHtml(expAudioRead || '')).trim();
+  const cleanQuery = (query || '').trim();
+  
+  // 1. entryName에 한자가 없으면, 그 자체가 발음(히라가나)입니다.
+  if (!containsKanji(cleanEntry)) {
+    return cleanEntry;
+  }
+  
+  // 2. entryName에 한자가 포함되어 있으면, expMeaningRead(훈독) 및 expAudioRead(음독)에서 발음을 추출합니다.
+  let readings = [];
+  if (cleanMeaning) {
+    readings = readings.concat(cleanMeaning.split('·').map(r => r.trim()).filter(Boolean));
+  }
+  if (cleanAudio) {
+    readings = readings.concat(cleanAudio.split('·').map(r => r.trim()).filter(Boolean));
+  }
+  
+  // 3. entryName에 괄호가 포함되어 있는 경우 (예: "○○밖에 안이김（○○밖에 안이김）"), 괄호 안의 히라가나 발음을 추출합니다.
+  const matchParen = cleanEntry.match(/[（(]([^）)]+)[）)]/);
+  if (matchParen) {
+    let inside = matchParen[1].trim();
+    // ○, ●, *, ＠ 등 플레이스홀더 성격의 기호 제거
+    inside = inside.replace(/[○●*＊_]/g, '').trim();
+    if (inside && /[\u3040-\u309F\u30A0-\u30FF]/.test(inside)) {
+      readings.push(inside);
+    }
+  }
+  
+  // 4. 전역에 캐싱된 자동완성 히라가나가 있고, 현재 단어와 매칭되는 경우 해당 발음을 추가합니다.
+  if (window.lastAutocompleteWord && window.lastAutocompleteHiragana) {
+    const cleanWord = stripHtmlTags(unescapeHtml(expKanji || entryName || '')).trim();
+    if (cleanWord === window.lastAutocompleteWord && !containsKanji(window.lastAutocompleteHiragana)) {
+      readings.push(window.lastAutocompleteHiragana.trim());
+    }
+  }
+  
+  // 중복 제거
+  readings = [...new Set(readings)];
+  
+  // 5. 사용자의 검색 쿼리가 히라가나/가타카나이고, 추출된 발음 목록에 포함되어 있다면 이를 우선 사용합니다.
+  const queryIsKana = /^[\u3040-\u309F\u30A0-\u30FF\u30FC]+$/.test(cleanQuery);
+  if (queryIsKana) {
+    if (readings.includes(cleanQuery)) {
+      return cleanQuery;
+    }
+    // 만약 발음 목록에는 없으나 쿼리 자체가 순수 가나이고 readings가 비어있는 경우, 쿼리를 우선 발음으로 채워줍니다.
+    if (readings.length === 0) {
+      return cleanQuery;
+    }
+  }
+  
+  if (readings.length === 0) {
+    // 6. 만약 발음 추출에 완전히 실패했고 cleanEntry에 한자가 섞여 있는 경우,
+    // 이 값을 발음 필드에 그대로 반환하면 유효성 검사 에러가 나므로,
+    // 한자를 모두 필터링하여 남은 가나 문자만 반환하거나, 아예 빈 문자열로 반환하여 사용자가 수동 입력을 하도록 유도합니다.
+    const onlyKana = cleanEntry.replace(/[^\u3040-\u309F\u30A0-\u30FF\u30FC]/g, '').trim();
+    return onlyKana || '';
+  }
+  
+  // 7. 그 외의 경우, 여러 발음을 쉼표로 연결하여 사용자가 선택/편집할 수 있게 합니다.
+  return readings.join(', ');
 }
 
 function preserveRubyTags(rawHtml) {
@@ -1683,11 +1815,11 @@ function setupSearchEvents() {
       })
       .catch(err => {
         showToast('단어 정보를 사전에서 찾지 못했습니다. 직접 입력해주세요.', false);
-        // 검색어에 일본어(히라가나/가타카나)가 포함되어 있으면 발음 필드에 기본값으로 설정
+        // 검색어에 일본어(히라가나/가타카나)가 포함되어 있고 한자가 없는 경우에만 발음 필드에 기본값으로 설정
         const queryIsJapanese = /[\u3040-\u309F\u30A0-\u30FF]/.test(word);
         renderSearchResult({
           word: word,
-          hiragana: queryIsJapanese ? word : '',
+          hiragana: (queryIsJapanese && !containsKanji(word)) ? word : '',
           meaning: '',
           examples: []
         });
@@ -1754,6 +1886,8 @@ function setupSearchEvents() {
             `;
             
             row.addEventListener('click', () => {
+              window.lastAutocompleteWord = item.word ? item.word.trim() : '';
+              window.lastAutocompleteHiragana = item.hiragana ? item.hiragana.trim() : '';
               searchInput.value = item.word;
               hideDropdown();
               handleSearch();
@@ -1831,6 +1965,11 @@ function setupSearchEvents() {
     
     if (/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(word)) {
       showToast('단어(한자/표기)에는 한국어가 포함될 수 없습니다. 일본어 단어만 등록 가능합니다.', false);
+      return;
+    }
+
+    if (/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(hiragana)) {
+      showToast('발음(히라가나/요미가나) 필드에는 한국어가 포함될 수 없습니다. 올바른 발음으로 입력해 주세요.', false);
       return;
     }
 
@@ -1919,7 +2058,7 @@ function renderSearchResult(data) {
         });
         suggestionsDiv.appendChild(btn);
       });
-      lucide.createIcons();
+      safeCreateIcons();
     } else {
       suggestionsDiv.innerHTML = '<p class="warning-desc" style="margin-bottom: 0;">추천할 수 있는 일본어 단어가 없습니다. 검색창에 일본어 단어를 직접 입력해 주세요.</p>';
     }
@@ -1986,7 +2125,10 @@ function setupStudyEvents() {
   });
   
   // Study feedback score buttons
-  document.getElementById('btn-forgot').addEventListener('click', () => submitReview(1)); // Again
+  const btnForgot = document.getElementById('btn-forgot');
+  if (btnForgot) {
+    btnForgot.addEventListener('click', () => submitReview(1)); // Again
+  }
   document.getElementById('btn-good').addEventListener('click', () => submitReview(4));   // Good
   document.getElementById('btn-easy').addEventListener('click', () => submitReview(5));   // Easy
   
@@ -2116,7 +2258,7 @@ function renderCurrentCard() {
       `;
       exList.appendChild(li);
     });
-    lucide.createIcons();
+    safeCreateIcons();
   } else {
     exList.innerHTML = '<li class="ex-ko">등록된 예문이 없습니다.</li>';
   }
@@ -2287,7 +2429,7 @@ function updateThemeButtonUI() {
   } else {
     btn.innerHTML = '<i data-lucide="sun"></i> &nbsp; 라이트 테마 전환';
   }
-  lucide.createIcons();
+  safeCreateIcons();
 }
 
 function setupSettingsEvents() {

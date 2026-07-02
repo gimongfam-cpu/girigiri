@@ -980,6 +980,45 @@ body.light-theme .suggestion-word {
   color: #0f172a;
 }
 
+/* Light Theme Shading & Legibility Patches */
+body.light-theme .app-header {
+  background-color: rgba(255, 255, 255, 0.7);
+  border-bottom-color: var(--border-color);
+}
+
+body.light-theme .app-nav {
+  background-color: rgba(255, 255, 255, 0.9);
+  border-top-color: var(--border-color);
+}
+
+body.light-theme .status-badge {
+  color: #4f46e5 !important;
+  background-color: rgba(99, 102, 241, 0.08) !important;
+  border-color: rgba(99, 102, 241, 0.25) !important;
+}
+
+body.light-theme .ex-jp {
+  color: #1e293b;
+}
+
+body.light-theme .goal-percentage {
+  color: #0f172a;
+}
+
+body.light-theme .goal-details strong {
+  color: #0f172a;
+}
+
+body.light-theme .goal-status-text {
+  color: #4f46e5;
+}
+
+body.light-theme .suggestion-btn {
+  background: rgba(99, 102, 241, 0.06);
+  border-color: rgba(99, 102, 241, 0.2);
+  color: #4f46e5;
+}
+
 body.light-theme .app-header h1 {
   background: linear-gradient(135deg, #0f172a 0%, #4338ca 100%);
   -webkit-background-clip: text;

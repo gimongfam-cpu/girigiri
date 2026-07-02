@@ -46,7 +46,8 @@ self.addEventListener('fetch', (event) => {
   event.respondWith(
     fetch(event.request).then((response) => {
       // If network fetch succeeds, update the cache and return the response
-      if (response && response.status === 200 && response.type === 'basic') {
+      // Allow 'basic' (same-origin) and 'cors' (cross-origin CDN assets like Lucide / Google Fonts)
+      if (response && response.status === 200 && (response.type === 'basic' || response.type === 'cors')) {
         const responseToCache = response.clone();
         caches.open(CACHE_NAME).then((cache) => {
           cache.put(event.request, responseToCache);
