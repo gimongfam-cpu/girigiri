@@ -19,6 +19,8 @@
   
   <!-- Lucide Icons -->
   <script src="https://unpkg.com/lucide@latest"></script>
+  <!-- Tesseract.js for PWA Client OCR -->
+  <script src="https://unpkg.com/tesseract.js@5.0.3/dist/tesseract.min.js"></script>
   
   <!-- Stylesheet -->
   <link rel="stylesheet" href="css/styles.css">
@@ -55,6 +57,9 @@
             <!-- Autocomplete Suggestions Dropdown -->
             <div id="suggestions-dropdown" class="suggestions-dropdown hidden"></div>
           </div>
+          <button id="btn-ocr-trigger" class="ocr-trigger-btn" title="사진에서 일본어 단어 스캔">
+            <i data-lucide="camera"></i>
+          </button>
           <button id="btn-search" class="primary-btn">
             <i data-lucide="search"></i> 검색
           </button>
@@ -451,6 +456,62 @@
       </button>
     </nav>
     
+  </div>
+
+  <!-- OCR Scanner Modal -->
+  <div id="ocr-modal" class="modal-overlay hidden">
+    <div class="modal-card bg-glass">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.15rem; background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+          <i data-lucide="camera" style="stroke: #6366f1; width: 20px; height: 20px;"></i> 이미지 일본어 스캔
+        </h3>
+        <button id="btn-close-ocr" class="icon-btn close-modal-btn">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px 20px 20px; display: flex; flex-direction: column; gap: 16px;">
+        <!-- Hidden input for file/camera upload -->
+        <input type="file" id="ocr-file-input" accept="image/*" capture="environment" style="display: none;">
+        
+        <!-- Upload Dropzone area -->
+        <div id="ocr-upload-zone" class="ocr-dropzone">
+          <i data-lucide="image-plus" class="upload-icon"></i>
+          <p class="upload-title">사진 선택 또는 촬영</p>
+          <p class="upload-desc">일본어 텍스트가 있는 사진을 찍거나 가져오세요</p>
+          <button id="btn-ocr-select" class="primary-btn" style="margin-top: 12px; font-size: 0.8rem; height: 36px; padding: 0 16px; border-radius: 10px;">
+            <i data-lucide="upload"></i> 파일 선택 / 촬영
+          </button>
+        </div>
+
+        <!-- Scan preview & progress (shown during upload/scan) -->
+        <div id="ocr-scan-zone" class="ocr-preview-container hidden">
+          <div class="ocr-image-wrapper">
+            <img id="ocr-preview-img" src="" alt="OCR Preview">
+            <div id="ocr-scanner-line" class="ocr-scanner-bar"></div>
+          </div>
+          <div class="ocr-progress-container">
+            <div class="ocr-progress-text">
+              <span id="ocr-status-text">분석 준비 중...</span>
+              <span id="ocr-percent-text">0%</span>
+            </div>
+            <div class="ocr-progress-bar">
+              <div id="ocr-progress-fill" class="ocr-progress-fill"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Scan Results (shown after scanning completes) -->
+        <div id="ocr-results-zone" class="ocr-results-container hidden">
+          <span class="section-title">스캔 완료 (원하는 일본어 단어를 터치하세요)</span>
+          <div class="ocr-result-text-area" id="ocr-result-text-box">
+            <!-- Words will be tokenized here -->
+          </div>
+          <button id="btn-ocr-reset" class="danger-btn full-width-btn" style="margin-top: 16px; height: 40px; font-size: 0.85rem; border-radius: 12px;">
+            <i data-lucide="rotate-ccw"></i> 다른 사진 분석하기
+          </button>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- Global Toast Notification -->

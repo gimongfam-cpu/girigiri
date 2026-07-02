@@ -91,6 +91,7 @@ document.addEventListener('DOMContentLoaded', () => {
       setupStudyEvents();
       setupSettingsEvents();
       setupGridEvents();
+      setupOcrEvents();
       
       // Setup URL action routing for PWA shortcuts
       const urlParams = new URLSearchParams(window.location.search);
@@ -2709,3 +2710,208 @@ function setupGridEvents() {
     });
   }
 }
+
+function setupOcrEvents() {
+  const btnOcrTrigger = document.getElementById('btn-ocr-trigger');
+  const ocrModal = document.getElementById('ocr-modal');
+  const btnCloseOcr = document.getElementById('btn-close-ocr');
+  const ocrFileInput = document.getElementById('ocr-file-input');
+  const btnOcrSelect = document.getElementById('btn-ocr-select');
+  const ocrUploadZone = document.getElementById('ocr-upload-zone');
+  const ocrScanZone = document.getElementById('ocr-scan-zone');
+  const ocrResultsZone = document.getElementById('ocr-results-zone');
+  const ocrPreviewImg = document.getElementById('ocr-preview-img');
+  const ocrStatusText = document.getElementById('ocr-status-text');
+  const ocrPercentText = document.getElementById('ocr-percent-text');
+  const ocrProgressFill = document.getElementById('ocr-progress-fill');
+  const ocrResultTextBox = document.getElementById('ocr-result-text-box');
+  const btnOcrReset = document.getElementById('btn-ocr-reset');
+
+  if (!btnOcrTrigger) return;
+
+  let ocrWorker = null;
+
+  // Open modal
+  btnOcrTrigger.addEventListener('click', () => {
+    ocrModal.classList.remove('hidden');
+    resetOcrUI();
+    safeCreateIcons();
+  });
+
+  // Close modal
+  btnCloseOcr.addEventListener('click', () => {
+    ocrModal.classList.add('hidden');
+    terminateOcrWorker();
+  });
+
+  // Trigger file select
+  btnOcrSelect.addEventListener('click', () => {
+    ocrFileInput.click();
+  });
+
+  ocrFileInput.addEventListener('change', (e) => {
+    const file = e.target.files[0];
+    if (file) {
+      processOcrImage(file);
+    }
+  });
+
+  // Drag & Drop
+  ocrUploadZone.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    ocrUploadZone.classList.add('dragover');
+  });
+
+  ocrUploadZone.addEventListener('dragleave', () => {
+    ocrUploadZone.classList.remove('dragover');
+  });
+
+  ocrUploadZone.addEventListener('drop', (e) => {
+    e.preventDefault();
+    ocrUploadZone.classList.remove('dragover');
+    const file = e.dataTransfer.files[0];
+    if (file && file.type.startsWith('image/')) {
+      processOcrImage(file);
+    } else {
+      showToast('이미지 파일만 지원됩니다.', false);
+    }
+  });
+
+  // Reset/Reset to another image
+  btnOcrReset.addEventListener('click', () => {
+    resetOcrUI();
+  });
+
+  function resetOcrUI() {
+    ocrFileInput.value = '';
+    ocrUploadZone.classList.remove('hidden');
+    ocrScanZone.classList.add('hidden');
+    ocrResultsZone.classList.add('hidden');
+    ocrPreviewImg.src = '';
+    ocrProgressFill.style.width = '0%';
+    ocrPercentText.innerText = '0%';
+    ocrStatusText.innerText = '준비 중...';
+    ocrResultTextBox.innerHTML = '';
+    terminateOcrWorker();
+  }
+
+  function terminateOcrWorker() {
+    if (ocrWorker) {
+      ocrWorker.terminate();
+      ocrWorker = null;
+    }
+  }
+
+  function processOcrImage(file) {
+    ocrUploadZone.classList.add('hidden');
+    ocrScanZone.classList.remove('hidden');
+    ocrResultsZone.classList.add('hidden');
+
+    // Show image preview
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      ocrPreviewImg.src = e.target.result;
+    };
+    reader.readAsDataURL(file);
+
+    ocrStatusText.innerText = '분석 엔진 초기화 중...';
+    ocrPercentText.innerText = '0%';
+    ocrProgressFill.style.width = '0%';
+
+    // Run Tesseract OCR client-side
+    Tesseract.createWorker({
+      logger: m => {
+        if (m.status === 'recognizing text') {
+          const progress = Math.round(m.progress * 100);
+          ocrStatusText.innerText = '일본어 글자 판독 중...';
+          ocrPercentText.innerText = `${progress}%`;
+          ocrProgressFill.style.width = `${progress}%`;
+        } else if (m.status === 'loading tesseract core') {
+          ocrStatusText.innerText = '인공지능 코어 파일 로딩 중...';
+        } else if (m.status === 'initializing api') {
+          ocrStatusText.innerText = '언어 사전 매핑 중...';
+        }
+      }
+    }).then(worker => {
+      ocrWorker = worker;
+      // load Japanese
+      return worker.loadLanguage('jpn')
+        .then(() => worker.initialize('jpn'))
+        .then(() => worker.recognize(file))
+        .then(result => {
+          const text = result.data.text;
+          displayOcrTokens(text);
+        })
+        .catch(err => {
+          console.error("Tesseract recognition failed:", err);
+          ocrStatusText.innerText = '오류: 일본어 인식에 실패했습니다.';
+          showToast('분석 실패: 이미지 화질을 확인해 주세요.', false);
+        })
+        .finally(() => {
+          terminateOcrWorker();
+        });
+    }).catch(err => {
+      console.error("Worker creation failed:", err);
+      ocrStatusText.innerText = '엔진 에러가 발생했습니다.';
+    });
+  }
+
+  function displayOcrTokens(text) {
+    ocrScanZone.classList.add('hidden');
+    ocrResultsZone.classList.remove('hidden');
+
+    if (!text || text.trim().length === 0) {
+      ocrResultTextBox.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem; width: 100%; text-align: center;">인식된 글자가 없습니다. 사진을 다시 확인해 주세요.</p>';
+      return;
+    }
+
+    // Split text to extract Japanese word tokens (Kanji+Hiragana blocks, Katakana blocks)
+    const jpRegex = /[\u3040-\u309F\u30A0-\u30FF\u4E00-\u9FAF]+/g;
+    const matches = text.match(jpRegex) || [];
+    
+    const tokens = [];
+    matches.forEach(block => {
+      if (block.length <= 5) {
+        tokens.push(block);
+      } else {
+        // Break down long sentence block into words:
+        // Contiguous Kanji + trailing Hiragana, Katakana blocks, or Hiragana blocks
+        const subRegex = /([\u4E00-\u9FAF]+[\u3040-\u309F]*|[\u30A0-\u30FF\u30FC]+|[\u3040-\u309F]+)/g;
+        const subs = block.match(subRegex) || [];
+        subs.forEach(s => {
+          if (s.length >= 1) tokens.push(s);
+        });
+      }
+    });
+
+    const uniqueTokens = Array.from(new Set(tokens)).filter(t => t.trim().length > 0);
+
+    if (uniqueTokens.length === 0) {
+      ocrResultTextBox.innerHTML = '<p style="color: var(--text-secondary); font-size: 0.85rem; width: 100%; text-align: center;">유효한 일본어 단어를 찾지 못했습니다.</p>';
+      return;
+    }
+
+    ocrResultTextBox.innerHTML = '';
+    uniqueTokens.forEach(token => {
+      const span = document.createElement('span');
+      span.className = 'ocr-word-token';
+      span.innerText = token;
+      span.addEventListener('click', () => {
+        const searchInput = document.getElementById('search-input');
+        if (searchInput) {
+          searchInput.value = token;
+          ocrModal.classList.add('hidden');
+          
+          // Trigger search
+          const btnSearch = document.getElementById('btn-search');
+          if (btnSearch) {
+            btnSearch.click();
+          }
+          showToast(`'${token}' 검색 중...`, true);
+        }
+      });
+      ocrResultTextBox.appendChild(span);
+    });
+  }
+}
+
