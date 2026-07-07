@@ -1079,8 +1079,8 @@ body.light-theme .writing-hiragana-hint {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 10px 16px;
-  margin-bottom: 12px;
+  padding: 6px 12px;
+  margin-bottom: 8px;
   border-radius: 12px;
 }
 
@@ -1646,8 +1646,8 @@ body.light-theme .mode-selector {
   background: none;
   border: none;
   color: var(--text-secondary);
-  padding: 6px 12px;
-  font-size: 0.75rem;
+  padding: 4px 8px;
+  font-size: 0.7rem;
   font-weight: 600;
   border-radius: 6px;
   cursor: pointer;
@@ -2235,4 +2235,17 @@ body.light-theme .word-list-action-btn {
   background-color: rgba(244, 63, 94, 0.1);
   border-color: rgba(244, 63, 94, 0.3);
   color: var(--color-danger);
+}
+
+#screen-study .screen-header {
+  margin-bottom: 8px;
+}
+
+#screen-study .screen-header h2 {
+  font-size: 1.15rem;
+  margin-bottom: 2px;
+}
+
+#screen-study .screen-header p {
+  font-size: 0.72rem;
 }

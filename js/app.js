@@ -205,9 +205,8 @@ function sanitizeDatabase() {
         // 1. 이상 문자(한글이 섞인 일본어 등) 정제 대상 검사
         const containsHangulInWord = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(w.word || '');
         const containsHangulInHira = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(w.hiragana || '');
-        const containsKanjiInHira = containsKanji(w.hiragana || '');
         
-        if (containsHangulInWord || containsHangulInHira || containsKanjiInHira) {
+        if (containsHangulInWord || containsHangulInHira) {
           console.warn("Invalid entry target for delete:", w.word, "hiragana:", w.hiragana);
           toDelete.push(w.id);
           deletedCount++;
@@ -2285,8 +2284,8 @@ function setupStudyEvents() {
     btnModeNormal.classList.add('active');
     btnModeTest.classList.remove('active');
     currentStudyMode = 'normal';
-    studyTitle.innerText = '오늘의 학습 카드';
-    studyDesc.innerText = '망각곡선 복습 주기가 도래한 단어들을 외웁니다.';
+    studyTitle.innerText = '오늘 복습';
+    studyDesc.innerText = '망각곡선 주기 단어를 학습합니다.';
     loadStudySession();
   });
   
@@ -2294,8 +2293,8 @@ function setupStudyEvents() {
     btnModeTest.classList.add('active');
     btnModeNormal.classList.remove('active');
     currentStudyMode = 'test';
-    studyTitle.innerText = '전체 랜덤 테스트';
-    studyDesc.innerText = '등록한 전체 단어 중 10개를 무작위로 추출하여 실력을 테스트합니다.';
+    studyTitle.innerText = '랜덤 테스트';
+    studyDesc.innerText = '단어 중 10개를 테스트합니다.';
     loadStudySession();
   });
 
