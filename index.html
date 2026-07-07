@@ -204,6 +204,42 @@
         </div>
       </section>
 
+      <!-- Screen 5: Word List (NEW) -->
+      <section id="screen-list" class="app-screen">
+        <div class="screen-header">
+          <h2>내 단어장 목록</h2>
+          <p>등록된 전체 단어를 검색하고 수정하거나 삭제할 수 있습니다.</p>
+        </div>
+        
+        <!-- 검색 및 필터바 -->
+        <div class="list-search-bar bg-glass" style="display: flex; gap: 10px; margin-bottom: 20px; padding: 12px;">
+          <div class="search-input-wrapper" style="flex: 1;">
+            <input type="text" id="list-search-input" placeholder="단어, 뜻, 발음 검색..." autocomplete="off" style="padding: 10px 14px; font-size: 0.9rem;">
+          </div>
+          <select id="list-status-filter" class="filter-select" style="background-color: rgba(15, 23, 42, 0.5); border: 1px solid var(--border-color); border-radius: 12px; padding: 0 12px; color: var(--text-primary); outline: none; font-size: 0.85rem; font-weight: 600; cursor: pointer;">
+            <option value="all">전체 상태</option>
+            <option value="new">처음본다</option>
+            <option value="learning">암기중</option>
+            <option value="memorized">완벽해</option>
+          </select>
+        </div>
+        
+        <!-- 단어 리스트 영역 -->
+        <div id="word-list-container" class="word-list-container" style="display: flex; flex-direction: column; gap: 12px;">
+          <!-- 여기에 단어들이 카드로 동적 생성됨 -->
+        </div>
+        
+        <!-- Empty State for list -->
+        <div id="list-empty-state" class="empty-state hidden">
+          <i data-lucide="book-x" class="empty-icon text-indigo"></i>
+          <h3>등록된 단어가 없습니다</h3>
+          <p>새로운 단어를 검색하여 단어장에 추가해 보세요!</p>
+          <button class="primary-btn btn-go-input" style="margin-top: 10px;">
+            <i data-lucide="plus"></i> 단어 추가하러 가기
+          </button>
+        </div>
+      </section>
+
       <!-- Screen 2: Memorization / Study Cards -->
       <section id="screen-study" class="app-screen">
         <div class="screen-header">
@@ -441,6 +477,10 @@
         <i data-lucide="plus-circle"></i>
         <span>입력</span>
       </button>
+      <button class="nav-item" data-target="screen-list" id="nav-btn-list">
+        <i data-lucide="list"></i>
+        <span>단어장</span>
+      </button>
       <button class="nav-item" data-target="screen-study" id="nav-btn-study">
         <i data-lucide="hourglass" class="due-nav-icon"></i>
         <span>복습</span>
@@ -510,6 +550,54 @@
             <i data-lucide="rotate-ccw"></i> 다른 사진 분석하기
           </button>
         </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Word Edit Modal -->
+  <div id="word-edit-modal" class="modal-overlay hidden">
+    <div class="modal-card bg-glass">
+      <div class="modal-header">
+        <h3 style="display: flex; align-items: center; gap: 8px; font-weight: 800; font-size: 1.15rem; background: linear-gradient(135deg, #a5b4fc 0%, #6366f1 100%); -webkit-background-clip: text; -webkit-text-fill-color: transparent;">
+          <i data-lucide="edit-3" style="stroke: #6366f1; width: 20px; height: 20px;"></i> 단어 수정하기
+        </h3>
+        <button id="btn-close-edit-modal" class="icon-btn close-modal-btn">
+          <i data-lucide="x"></i>
+        </button>
+      </div>
+      <div class="modal-body" style="padding: 16px 20px 20px 20px; display: flex; flex-direction: column; gap: 16px; max-height: 80vh; overflow-y: auto; scrollbar-width: none;">
+        <input type="hidden" id="modal-edit-id">
+        
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="modal-edit-word" style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">단어 (한자/표기)</label>
+          <input type="text" id="modal-edit-word" required style="padding: 10px 14px; font-size: 0.9rem;">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="modal-edit-hiragana" style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">발음 (히라가나/요미가나)</label>
+          <input type="text" id="modal-edit-hiragana" required style="padding: 10px 14px; font-size: 0.9rem;">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="modal-edit-meaning" style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">메인 뜻</label>
+          <input type="text" id="modal-edit-meaning" required style="padding: 10px 14px; font-size: 0.9rem;">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 0;">
+          <label for="modal-edit-meaning-additional" style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">추가 뜻 (쉼표로 구분)</label>
+          <input type="text" id="modal-edit-meaning-additional" style="padding: 10px 14px; font-size: 0.9rem;">
+        </div>
+        
+        <div class="form-group" style="margin-bottom: 0;">
+          <label style="display: block; font-size: 0.8rem; font-weight: 600; color: var(--text-secondary); margin-bottom: 6px;">일본어 예문 (최대 3개)</label>
+          <div id="modal-examples-edit-list" style="display: flex; flex-direction: column; gap: 8px;">
+            <!-- Dynamically populated examples -->
+          </div>
+        </div>
+        
+        <button id="btn-modal-save-word" class="success-btn full-width-btn" style="margin-top: 8px; height: 42px; font-size: 0.9rem; border-radius: 12px;">
+          <i data-lucide="save"></i> 수정 완료
+        </button>
       </div>
     </div>
   </div>

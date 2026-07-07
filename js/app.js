@@ -82,6 +82,8 @@ document.addEventListener('DOMContentLoaded', () => {
           } else if (targetId === 'screen-input') {
             loadTodayRecommendation();
             loadTodayDueWord();
+          } else if (targetId === 'screen-list') {
+            loadWordList();
           }
         });
       });
@@ -92,6 +94,7 @@ document.addEventListener('DOMContentLoaded', () => {
       setupSettingsEvents();
       setupGridEvents();
       setupOcrEvents();
+      setupWordListEvents();
       
       // Setup URL action routing for PWA shortcuts
       const urlParams = new URLSearchParams(window.location.search);
@@ -188,25 +191,97 @@ function sanitizeDatabase() {
     }
     const transaction = db.transaction(['words'], 'readwrite');
     const store = transaction.objectStore('words');
-    const req = store.openCursor();
+    const req = store.getAll();
     let deletedCount = 0;
+    let mergedCount = 0;
 
     req.onsuccess = (event) => {
-      const cursor = event.target.result;
-      if (cursor) {
-        const wordData = cursor.value;
-        const containsHangulInWord = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(wordData.word || '');
-        const containsHangulInHira = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(wordData.hiragana || '');
-        const containsKanjiInHira = containsKanji(wordData.hiragana || '');
+      const words = event.target.result;
+      const wordMap = new Map();
+      const toDelete = [];
+      const toUpdate = [];
+
+      words.forEach(w => {
+        // 1. 이상 문자(한글이 섞인 일본어 등) 정제 대상 검사
+        const containsHangulInWord = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(w.word || '');
+        const containsHangulInHira = /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(w.hiragana || '');
+        const containsKanjiInHira = containsKanji(w.hiragana || '');
+        
         if (containsHangulInWord || containsHangulInHira || containsKanjiInHira) {
-          console.warn("Deleting invalid entry from db:", wordData.word, "hiragana:", wordData.hiragana);
-          cursor.delete();
+          console.warn("Invalid entry target for delete:", w.word, "hiragana:", w.hiragana);
+          toDelete.push(w.id);
           deletedCount++;
+          return;
         }
-        cursor.continue();
-      } else {
-        if (deletedCount > 0) {
-          showToast(`잘못 등록된 단어 ${deletedCount}개가 정리되었습니다.`, false);
+
+        // 2. 동일 단어(word) 중복 검사
+        const key = w.word.trim();
+        if (wordMap.has(key)) {
+          const base = wordMap.get(key);
+          
+          // 의미 병합 (중복 제외하고 \n으로 구분)
+          const baseMeanings = (base.meaning || '').split('\n').map(m => m.trim()).filter(Boolean);
+          const currentMeanings = (w.meaning || '').split('\n').map(m => m.trim()).filter(Boolean);
+          const combinedMeanings = [...new Set([...baseMeanings, ...currentMeanings])];
+          base.meaning = combinedMeanings.join('\n');
+
+          // 예문 병합
+          const baseExamples = base.examples || [];
+          const currentExamples = w.examples || [];
+          currentExamples.forEach(ex => {
+            const isDup = baseExamples.some(e => stripHtmlTags(e.japanese).trim() === stripHtmlTags(ex.japanese).trim());
+            if (!isDup) {
+              baseExamples.push(ex);
+            }
+          });
+          base.examples = baseExamples.slice(0, 3); // 최대 3개 유지
+
+          // 더 진행도가 높은 학습 상태(interval이 긴 것)로 학습 이력 보존
+          const baseInterval = base.interval || 1;
+          const currentInterval = w.interval || 1;
+          if (currentInterval > baseInterval) {
+            base.interval = w.interval;
+            base.repetition = w.repetition;
+            base.efactor = w.efactor;
+            base.next_review = w.next_review;
+            base.status = w.status;
+            base.perfect_count = w.perfect_count || 0;
+          }
+          base.exposure_count = (base.exposure_count || 0) + (w.exposure_count || 0);
+
+          toDelete.push(w.id);
+          mergedCount++;
+        } else {
+          wordMap.set(key, w);
+        }
+      });
+
+      // DB 업데이트 및 삭제 실행
+      toUpdate.push(...wordMap.values());
+      
+      const deletePromises = toDelete.map(id => {
+        return new Promise((res) => {
+          const delReq = store.delete(id);
+          delReq.onsuccess = () => res();
+          delReq.onerror = () => res();
+        });
+      });
+
+      const updatePromises = toUpdate.map(w => {
+        return new Promise((res) => {
+          const putReq = store.put(w);
+          putReq.onsuccess = () => res();
+          putReq.onerror = () => res();
+        });
+      });
+
+      Promise.all([...deletePromises, ...updatePromises]).then(() => {
+        if (deletedCount > 0 || mergedCount > 0) {
+          let msg = "";
+          if (deletedCount > 0) msg += `잘못 등록된 단어 ${deletedCount}개가 정리되었습니다. `;
+          if (mergedCount > 0) msg += `중복 단어 ${mergedCount}개가 하나로 병합되었습니다.`;
+          showToast(msg.trim(), true);
+          
           setTimeout(() => {
             updateHeaderBadge();
             loadTodayRecommendation();
@@ -214,7 +289,7 @@ function sanitizeDatabase() {
           }, 300);
         }
         resolve();
-      }
+      }).catch(err => reject(err));
     };
 
     req.onerror = (event) => {
@@ -261,39 +336,62 @@ function dbAddWord(wordData) {
     const todayStr = getTodayString();
     const transaction = db.transaction(['words', 'stats'], 'readwrite');
     const wordStore = transaction.objectStore('words');
+    const wordIndex = wordStore.index('word');
     
-    const newWord = {
-      word: wordData.word,
-      hiragana: wordData.hiragana,
-      meaning: wordData.meaning,
-      interval: 1,
-      repetition: 0,
-      efactor: 2.5,
-      next_review: todayStr,
-      status: 'new',
-      exposure_count: 0,
-      tag: wordData.tag || null,
-      created_at: new Date().toISOString(),
-      examples: wordData.examples || []
+    // 이미 등록된 동일 단어가 있는지 조회
+    const getReq = wordIndex.get(wordData.word);
+    
+    getReq.onsuccess = (event) => {
+      const existingWord = event.target.result;
+      if (existingWord) {
+        // 이미 단어가 존재하므로 업데이트 (학습 주기 데이터는 보존)
+        existingWord.hiragana = wordData.hiragana;
+        existingWord.meaning = wordData.meaning;
+        existingWord.examples = wordData.examples || [];
+        if (wordData.tag !== undefined) {
+          existingWord.tag = wordData.tag || null;
+        }
+        wordStore.put(existingWord);
+        
+        transaction.oncomplete = () => resolve(existingWord);
+      } else {
+        // 존재하지 않는 신규 단어 추가
+        const newWord = {
+          word: wordData.word,
+          hiragana: wordData.hiragana,
+          meaning: wordData.meaning,
+          interval: 1,
+          repetition: 0,
+          efactor: 2.5,
+          next_review: todayStr,
+          status: 'new',
+          exposure_count: 0,
+          tag: wordData.tag || null,
+          created_at: new Date().toISOString(),
+          examples: wordData.examples || []
+        };
+        
+        const addReq = wordStore.add(newWord);
+        
+        addReq.onsuccess = (e) => {
+          const wordId = e.target.result;
+          newWord.id = wordId;
+          
+          // Update stats
+          getOrCreateTodayStats(transaction, todayStr)
+            .then(stats => {
+              stats.new_words_count += 1;
+              const statsStore = transaction.objectStore('stats');
+              statsStore.put(stats);
+            })
+            .catch(err => console.error("Stats update failed in dbAddWord:", err));
+        };
+        
+        transaction.oncomplete = () => resolve(newWord);
+      }
     };
     
-    const addReq = wordStore.add(newWord);
-    
-    addReq.onsuccess = (event) => {
-      const wordId = event.target.result;
-      newWord.id = wordId;
-      
-      // Update stats
-      getOrCreateTodayStats(transaction, todayStr)
-        .then(stats => {
-          stats.new_words_count += 1;
-          const statsStore = transaction.objectStore('stats');
-          statsStore.put(stats);
-        })
-        .catch(err => console.error("Stats update failed in dbAddWord:", err));
-    };
-    
-    transaction.oncomplete = () => resolve(newWord);
+    getReq.onerror = (e) => reject(e.target.error);
     transaction.onerror = (event) => reject(event.target.error);
   });
 }
@@ -465,6 +563,22 @@ function dbDeleteWord(wordId) {
     
     req.onsuccess = () => resolve();
     req.onerror = (event) => reject(event.target.error);
+  });
+}
+
+function dbCheckDuplicate(word) {
+  return new Promise((resolve, reject) => {
+    if (!db) {
+      resolve(null);
+      return;
+    }
+    const transaction = db.transaction(['words'], 'readonly');
+    const store = transaction.objectStore('words');
+    const index = store.index('word');
+    const req = index.get(word);
+    
+    req.onsuccess = (e) => resolve(e.target.result);
+    req.onerror = (e) => reject(e.target.error);
   });
 }
 
@@ -1770,14 +1884,10 @@ function renderMeaningsHTML(meaningStr) {
   const otherMeanings = parts.slice(1, 4); // Max 3 additional meanings
   
   let html = `<div class="meaning-container">`;
-  html += `<div class="main-meaning">${mainMeaning}</div>`;
-  
   if (otherMeanings.length > 0) {
-    html += `<div class="additional-meanings">`;
-    otherMeanings.forEach((m, idx) => {
-      html += `<span class="meaning-badge">${idx + 2}. ${m}</span>`;
-    });
-    html += `</div>`;
+    html += `<div class="main-meaning">${mainMeaning} <span class="sub-meanings-text" style="font-size: 0.78rem; font-weight: 500; color: var(--text-secondary); margin-left: 6px;">(${otherMeanings.join(', ')})</span></div>`;
+  } else {
+    html += `<div class="main-meaning">${mainMeaning}</div>`;
   }
   html += `</div>`;
   
@@ -2006,22 +2116,49 @@ function setupSearchEvents() {
     
     const wordPayload = { word, hiragana, meaning, examples };
     
-    dbAddWord(wordPayload)
-      .then(data => {
-        showToast('단어가 단어장에 성공적으로 추가되었습니다!', true);
-        searchInput.value = '';
-        document.getElementById('search-result-area').classList.add('hidden');
-        currentSearchData = null;
-        updateHeaderBadge();
+    dbCheckDuplicate(word)
+      .then(existingWord => {
+        if (existingWord) {
+          if (!confirm(`'${word}'은(는) 이미 저장한 단어입니다.\n새롭게 편집하여 저장하시겠습니까?`)) {
+            return;
+          }
+        }
         
-        // 추천 카드 리프레시 및 강제 표시
-        loadTodayRecommendation();
-        loadTodayDueWord();
-        document.getElementById('input-cards-grid').classList.remove('hidden');
+        dbAddWord(wordPayload)
+          .then(data => {
+            showToast(existingWord ? '단어 정보가 새롭게 수정되어 저장되었습니다!' : '단어가 단어장에 성공적으로 추가되었습니다!', true);
+            searchInput.value = '';
+            document.getElementById('search-result-area').classList.add('hidden');
+            currentSearchData = null;
+            updateHeaderBadge();
+            
+            // 추천 카드 리프레시 및 강제 표시
+            loadTodayRecommendation();
+            loadTodayDueWord();
+            document.getElementById('input-cards-grid').classList.remove('hidden');
+          })
+          .catch(err => {
+            showToast('단어 저장에 실패했습니다. 다시 시도해주세요.', false);
+            console.error(err);
+          });
       })
       .catch(err => {
-        showToast('단어 저장에 실패했습니다. 다시 시도해주세요.', false);
-        console.error(err);
+        console.error("Duplicate check failed, saving word anyway:", err);
+        dbAddWord(wordPayload)
+          .then(data => {
+            showToast('단어가 단어장에 성공적으로 추가되었습니다!', true);
+            searchInput.value = '';
+            document.getElementById('search-result-area').classList.add('hidden');
+            currentSearchData = null;
+            updateHeaderBadge();
+            loadTodayRecommendation();
+            loadTodayDueWord();
+            document.getElementById('input-cards-grid').classList.remove('hidden');
+          })
+          .catch(saveErr => {
+            showToast('단어 저장에 실패했습니다.', false);
+            console.error(saveErr);
+          });
       });
   });
 }
@@ -2566,6 +2703,331 @@ function loadSettings() {
       document.getElementById('settings-daily-target').value = data.daily_target || 10;
     })
     .catch(err => console.error("Error loading settings:", err));
+}
+
+/* ========================================================
+   SCREEN 5: WORD LIST MANAGEMENT (NEW)
+   ======================================================== */
+function setupWordListEvents() {
+  const searchInput = document.getElementById('list-search-input');
+  const statusFilter = document.getElementById('list-status-filter');
+  const btnCloseEditModal = document.getElementById('btn-close-edit-modal');
+  const btnModalSaveWord = document.getElementById('btn-modal-save-word');
+  
+  if (searchInput) {
+    searchInput.addEventListener('input', () => {
+      loadWordList();
+    });
+  }
+  
+  if (statusFilter) {
+    statusFilter.addEventListener('change', () => {
+      loadWordList();
+    });
+  }
+  
+  if (btnCloseEditModal) {
+    btnCloseEditModal.addEventListener('click', () => {
+      closeEditModal();
+    });
+  }
+  
+  if (btnModalSaveWord) {
+    btnModalSaveWord.addEventListener('click', () => {
+      saveEditedWord();
+    });
+  }
+}
+
+function loadWordList() {
+  const searchInput = document.getElementById('list-search-input');
+  const statusFilter = document.getElementById('list-status-filter');
+  
+  const query = searchInput ? searchInput.value.trim().toLowerCase() : '';
+  const filter = statusFilter ? statusFilter.value : 'all';
+  
+  dbGetWords(false)
+    .then(words => {
+      // 1. Filter by query
+      let filtered = words;
+      if (query) {
+        filtered = filtered.filter(w => {
+          const matchWord = (w.word || '').toLowerCase().includes(query);
+          const matchHira = (w.hiragana || '').toLowerCase().includes(query);
+          const matchMeaning = (w.meaning || '').toLowerCase().includes(query);
+          return matchWord || matchHira || matchMeaning;
+        });
+      }
+      
+      // 2. Filter by status
+      if (filter !== 'all') {
+        filtered = filtered.filter(w => {
+          if (filter === 'new') return w.status === 'new' || (w.interval || 1) <= 1;
+          if (filter === 'learning') return w.status === 'learning' || ((w.interval || 1) > 1 && (w.interval || 1) < 21);
+          if (filter === 'memorized') return w.status === 'memorized' || (w.interval || 1) >= 21;
+          return true;
+        });
+      }
+      
+      renderWordList(filtered);
+    })
+    .catch(err => {
+      console.error("Error loading word list:", err);
+      showToast("단어 목록을 불러오는 중 오류가 발생했습니다.", false);
+    });
+}
+
+function renderWordList(words) {
+  const container = document.getElementById('word-list-container');
+  const emptyState = document.getElementById('list-empty-state');
+  
+  if (!container) return;
+  
+  container.innerHTML = '';
+  
+  if (words.length === 0) {
+    emptyState.classList.remove('hidden');
+    container.classList.add('hidden');
+    return;
+  }
+  
+  emptyState.classList.add('hidden');
+  container.classList.remove('hidden');
+  
+  words.forEach(w => {
+    const card = document.createElement('div');
+    card.className = 'word-list-card bg-glass';
+    
+    // Status label mapping
+    let statusClass = 'new';
+    let statusLabel = '처음본다';
+    const intervalVal = w.interval || 1;
+    
+    if (w.status === 'memorized' || intervalVal >= 21) {
+      statusClass = 'memorized';
+      statusLabel = '완벽해';
+    } else if (w.status === 'learning' || intervalVal > 1) {
+      statusClass = 'learning';
+      statusLabel = '암기중';
+    }
+    
+    // Comma-separated clean meanings for horizontal compact list
+    const meaningText = (w.meaning || '').split('\n').join(', ');
+    
+    card.innerHTML = `
+      <div class="word-list-info-area">
+        <div class="word-list-word-row">
+          <h4 class="word-list-word">${w.word}</h4>
+          <span class="word-list-hiragana">(${w.hiragana})</span>
+        </div>
+        <div class="word-list-meaning-text">${meaningText}</div>
+      </div>
+      <div class="word-list-meta-area">
+        <span class="word-list-status-badge ${statusClass}">${statusLabel}</span>
+        <div class="word-list-card-actions">
+          <button class="word-list-action-btn tts-btn-list" title="발음 듣기">
+            <i data-lucide="volume-2"></i>
+          </button>
+          <button class="word-list-action-btn edit-btn" title="수정">
+            <i data-lucide="edit-3"></i>
+          </button>
+          <button class="word-list-action-btn delete-btn" title="삭제">
+            <i data-lucide="trash-2"></i>
+          </button>
+        </div>
+      </div>
+    `;
+    
+    // Event bindings inside card
+    card.querySelector('.tts-btn-list').addEventListener('click', (e) => {
+      e.stopPropagation();
+      speakJapanese(w.word);
+    });
+    
+    card.querySelector('.edit-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openEditModal(w.id);
+    });
+    
+    card.querySelector('.delete-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      deleteWordConfirm(w.id, w.word);
+    });
+    
+    container.appendChild(card);
+  });
+  
+  safeCreateIcons();
+}
+
+function deleteWordConfirm(id, wordText) {
+  if (confirm(`'${wordText}' 단어를 단어장에서 삭제하시겠습니까? 관련 학습 기록도 모두 지워집니다.`)) {
+    dbDeleteWord(id)
+      .then(() => {
+        showToast("단어가 정상적으로 삭제되었습니다.", true);
+        updateHeaderBadge();
+        loadWordList();
+        
+        // 입력 탭 카드 갱신
+        loadTodayRecommendation();
+        loadTodayDueWord();
+      })
+      .catch(err => {
+        console.error("Failed to delete word:", err);
+        showToast("단어 삭제 실패", false);
+      });
+  }
+}
+
+function openEditModal(id) {
+  if (!db) return;
+  const transaction = db.transaction(['words'], 'readonly');
+  const store = transaction.objectStore('words');
+  const req = store.get(id);
+  
+  req.onsuccess = (e) => {
+    const w = e.target.result;
+    if (!w) {
+      showToast("단어를 찾을 수 없습니다.", false);
+      return;
+    }
+    
+    document.getElementById('modal-edit-id').value = w.id;
+    document.getElementById('modal-edit-word').value = w.word;
+    document.getElementById('modal-edit-hiragana').value = w.hiragana;
+    
+    // Split meanings
+    const meaningStr = w.meaning || '';
+    let mainMeaning = meaningStr;
+    let additionalMeaning = '';
+    
+    if (meaningStr.includes('\n')) {
+      const parts = meaningStr.split('\n').map(p => p.trim()).filter(Boolean);
+      mainMeaning = parts[0] || '';
+      additionalMeaning = parts.slice(1).join(', ');
+    } else if (meaningStr.includes(',')) {
+      const parts = meaningStr.split(',').map(p => p.trim()).filter(Boolean);
+      mainMeaning = parts[0] || '';
+      additionalMeaning = parts.slice(1).join(', ');
+    }
+    
+    document.getElementById('modal-edit-meaning').value = mainMeaning;
+    document.getElementById('modal-edit-meaning-additional').value = additionalMeaning;
+    
+    // Render examples edit list
+    const examplesContainer = document.getElementById('modal-examples-edit-list');
+    examplesContainer.innerHTML = '';
+    
+    for (let i = 0; i < 3; i++) {
+      const ex = (w.examples && w.examples[i]) || { japanese: '', korean: '' };
+      const exRow = document.createElement('div');
+      exRow.className = 'example-edit-row';
+      const cleanJp = stripHtmlTags(ex.japanese);
+      exRow.innerHTML = `
+        <input type="text" class="modal-edit-ex-jp" placeholder="예문 ${i+1} (일본어)" value="${cleanJp}" style="padding: 8px 12px; font-size: 0.85rem;">
+        <input type="text" class="modal-edit-ex-ko" placeholder="예문 ${i+1} 번역 (한국어)" value="${ex.korean}" style="padding: 8px 12px; font-size: 0.85rem;">
+      `;
+      examplesContainer.appendChild(exRow);
+    }
+    
+    // Show modal
+    document.getElementById('word-edit-modal').classList.remove('hidden');
+    safeCreateIcons();
+  };
+  
+  req.onerror = () => {
+    showToast("단어 데이터 로딩 실패", false);
+  };
+}
+
+function closeEditModal() {
+  document.getElementById('word-edit-modal').classList.add('hidden');
+}
+
+function saveEditedWord() {
+  const idVal = document.getElementById('modal-edit-id').value;
+  const word = document.getElementById('modal-edit-word').value.trim();
+  const hiragana = document.getElementById('modal-edit-hiragana').value.trim();
+  const mainMeaning = document.getElementById('modal-edit-meaning').value.trim();
+  const additionalMeaning = document.getElementById('modal-edit-meaning-additional').value.trim();
+  
+  if (!idVal || !word || !hiragana || !mainMeaning) {
+    showToast("단어, 발음, 메인 뜻은 필수 입력 항목입니다.", false);
+    return;
+  }
+  
+  if (/[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(word) || /[ㄱ-ㅎ|ㅏ-ㅣ|가-힣]/.test(hiragana)) {
+    showToast("단어와 발음 필드에는 한국어가 포함될 수 없습니다.", false);
+    return;
+  }
+
+  if (containsKanji(hiragana)) {
+    showToast("발음 필드에는 한자가 포함될 수 없습니다.", false);
+    return;
+  }
+  
+  let meaning = mainMeaning;
+  if (additionalMeaning) {
+    const addParts = additionalMeaning.split(',').map(p => p.trim()).filter(Boolean);
+    if (addParts.length > 0) {
+      meaning = [mainMeaning, ...addParts].join('\n');
+    }
+  }
+  
+  // Get original word to retrieve rubys
+  const id = parseInt(idVal);
+  const transaction = db.transaction(['words'], 'readwrite');
+  const store = transaction.objectStore('words');
+  const getReq = store.get(id);
+  
+  getReq.onsuccess = (e) => {
+    const originalWord = e.target.result;
+    if (!originalWord) {
+      showToast("수정할 단어를 찾을 수 없습니다.", false);
+      return;
+    }
+    
+    // Parse examples
+    const examples = [];
+    const exRows = document.querySelectorAll('#modal-examples-edit-list .example-edit-row');
+    exRows.forEach((row, index) => {
+      const jp = row.querySelector('.modal-edit-ex-jp').value.trim();
+      const ko = row.querySelector('.modal-edit-ex-ko').value.trim();
+      if (jp && ko) {
+        let jpSaved = jp;
+        if (originalWord.examples && originalWord.examples[index]) {
+          const origJp = originalWord.examples[index].japanese;
+          if (stripHtmlTags(origJp).trim() === jp) {
+            jpSaved = origJp; // Keep the ruby tag if unchanged
+          }
+        }
+        examples.push({ japanese: jpSaved, korean: ko });
+      }
+    });
+    
+    // Update word fields
+    originalWord.word = word;
+    originalWord.hiragana = hiragana;
+    originalWord.meaning = meaning;
+    originalWord.examples = examples;
+    
+    const putReq = store.put(originalWord);
+    
+    putReq.onsuccess = () => {
+      showToast("단어가 성공적으로 수정되었습니다.", true);
+      closeEditModal();
+      loadWordList();
+      
+      // Update other tabs
+      updateHeaderBadge();
+      loadTodayRecommendation();
+      loadTodayDueWord();
+    };
+    
+    putReq.onerror = () => {
+      showToast("수정 사항 저장 실패", false);
+    };
+  };
 }
 
 /* ========================================================
