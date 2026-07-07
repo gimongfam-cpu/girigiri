@@ -526,7 +526,7 @@ function dbReviewWord(wordId, score, isTestMode = false) {
         let status = 'learning';
         if (interval <= 1) {
           status = 'new';
-        } else if (interval >= 21) {
+        } else if ((word.perfect_count || 0) >= 1 || interval >= 21) {
           status = 'memorized';
         }
         
@@ -681,19 +681,16 @@ function dbGetStats() {
       totalCount = words.length;
       words.forEach(w => {
         // 단어 상태 세분화 집계
-        if (w.status === 'new') newCount++;
-        else if (w.status === 'learning') learningCount++;
-        else if (w.status === 'memorized') {
+        const isNew = w.status === 'new' || (w.interval || 1) <= 1;
+        const isMemorized = w.status === 'memorized' || (w.perfect_count || 0) >= 1 || (w.interval || 1) >= 21;
+        
+        if (isNew) {
+          newCount++;
+        } else if (isMemorized) {
           memorizedCount++;
           memorizedExposuresSum += (w.exposure_count || 0);
         } else {
-          // Fallback if status is legacy or not set
-          const intervalVal = w.interval || 1;
-          if (intervalVal <= 1) newCount++;
-          else if (intervalVal >= 21) {
-            memorizedCount++;
-            memorizedExposuresSum += (w.exposure_count || 0);
-          } else learningCount++;
+          learningCount++;
         }
         
         if (w.next_review <= todayStr) dueCount++;
@@ -788,10 +785,11 @@ function dbImportData(jsonData) {
     clearReq.onsuccess = () => {
       jsonData.forEach(item => {
         const intervalVal = item.interval || 1;
+        const perfectCountVal = item.perfect_count || 0;
         let statusVal = item.status;
         if (!statusVal || !['new', 'learning', 'memorized'].includes(statusVal)) {
           if (intervalVal <= 1) statusVal = 'new';
-          else if (intervalVal >= 21) statusVal = 'memorized';
+          else if (perfectCountVal >= 1 || intervalVal >= 21) statusVal = 'memorized';
           else statusVal = 'learning';
         }
         
@@ -2766,9 +2764,12 @@ function loadWordList() {
       // 2. Filter by status
       if (filter !== 'all') {
         filtered = filtered.filter(w => {
-          if (filter === 'new') return w.status === 'new' || (w.interval || 1) <= 1;
-          if (filter === 'learning') return w.status === 'learning' || ((w.interval || 1) > 1 && (w.interval || 1) < 21);
-          if (filter === 'memorized') return w.status === 'memorized' || (w.interval || 1) >= 21;
+          const isNew = w.status === 'new' || (w.interval || 1) <= 1;
+          const isMemorized = w.status === 'memorized' || (w.perfect_count || 0) >= 1 || (w.interval || 1) >= 21;
+          
+          if (filter === 'new') return isNew;
+          if (filter === 'learning') return !isNew && !isMemorized;
+          if (filter === 'memorized') return isMemorized;
           return true;
         });
       }
@@ -2806,8 +2807,9 @@ function renderWordList(words) {
     let statusClass = 'new';
     let statusLabel = '처음본다';
     const intervalVal = w.interval || 1;
+    const perfectCountVal = w.perfect_count || 0;
     
-    if (w.status === 'memorized' || intervalVal >= 21) {
+    if (w.status === 'memorized' || perfectCountVal >= 1 || intervalVal >= 21) {
       statusClass = 'memorized';
       statusLabel = '완벽해';
     } else if (w.status === 'learning' || intervalVal > 1) {
