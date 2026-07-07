@@ -400,17 +400,18 @@ function dbGetWords(dueOnly = false) {
   return new Promise((resolve, reject) => {
     const transaction = db.transaction(['words'], 'readonly');
     const wordStore = transaction.objectStore('words');
-    const index = wordStore.index('next_review');
     const words = [];
     
-    const todayStr = getTodayString();
-    let range = null;
+    let request;
     if (dueOnly) {
-      // Fetch only cards with next_review <= todayStr
-      range = IDBKeyRange.upperBound(todayStr);
+      const index = wordStore.index('next_review');
+      const todayStr = getTodayString();
+      const range = IDBKeyRange.upperBound(todayStr);
+      request = index.openCursor(range);
+    } else {
+      // dueOnly가 false일 때는 인덱스 필드가 누락된 레코드까지 포함하여 전체를 100% 안전하게 가져오기 위해 스토어 자체를 직접 순회함
+      request = wordStore.openCursor();
     }
-    
-    const request = range ? index.openCursor(range) : index.openCursor();
     
     request.onsuccess = (event) => {
       const cursor = event.target.result;
@@ -420,10 +421,14 @@ function dbGetWords(dueOnly = false) {
       } else {
         // Sort: next_review asc, created_at desc
         words.sort((a, b) => {
-          if (a.next_review !== b.next_review) {
-            return a.next_review.localeCompare(b.next_review);
+          const nextA = a.next_review || '';
+          const nextB = b.next_review || '';
+          if (nextA !== nextB) {
+            return nextA.localeCompare(nextB);
           }
-          return b.created_at.localeCompare(a.created_at);
+          const createA = a.created_at || '';
+          const createB = b.created_at || '';
+          return createB.localeCompare(createA);
         });
         resolve(words);
       }
