@@ -460,43 +460,20 @@ function dbReviewWord(wordId, score, isTestMode = false) {
         let interval = word.interval || 1;
         let efactor = word.efactor || 2.5;
         
+        let status = 'learning';
+        
         // SM-2 Spaced Repetition Algorithm with custom Perfect (score 5) consecutive rules
         if (score === 1) {
           repetition = 0;
           interval = 1;
           efactor = Math.max(1.3, efactor - 0.2);
           word.perfect_count = 0; // Reset consecutive perfect count
+          status = 'new';
         } else if (score === 4) {
-          let perfectCount = word.perfect_count || 0;
-          if (perfectCount > 0) {
-            // "완벽해" 단계의 단어에서 "비슷해(암기중)"을 누르면 한 단계 강등
-            if (perfectCount >= 4) {
-              perfectCount = 3; // 30일 -> 14일
-              interval = 14;
-            } else if (perfectCount === 3) {
-              perfectCount = 2; // 14일 -> 7일
-              interval = 7;
-            } else if (perfectCount === 2) {
-              perfectCount = 1; // 7일 -> 2일
-              interval = 2;
-            } else {
-              perfectCount = 0; // 2일 -> 1일
-              interval = 1;
-            }
-            word.perfect_count = perfectCount;
-            repetition = Math.max(1, perfectCount);
-          } else {
-            // 일반 학습 단어는 기존 SM-2 알고리즘 실행
-            repetition += 1;
-            word.perfect_count = 0;
-            if (repetition === 1) {
-              interval = 1;
-            } else if (repetition === 2) {
-              interval = 4;
-            } else {
-              interval = Math.round(interval * efactor);
-            }
-          }
+          repetition = 0;
+          word.perfect_count = 0; // Reset consecutive perfect count
+          interval = 1; // Always show on the next day
+          status = 'learning';
         } else if (score === 5) {
           repetition += 1;
           efactor = Math.min(2.8, efactor + 0.15);
@@ -513,6 +490,7 @@ function dbReviewWord(wordId, score, isTestMode = false) {
           } else {
             interval = 30; // 30 days
           }
+          status = 'memorized';
         }
         
         interval = Math.min(365, interval);
@@ -521,14 +499,6 @@ function dbReviewWord(wordId, score, isTestMode = false) {
         const reviewDate = new Date();
         reviewDate.setDate(reviewDate.getDate() + interval);
         const nextReviewStr = `${reviewDate.getFullYear()}-${String(reviewDate.getMonth() + 1).padStart(2, '0')}-${String(reviewDate.getDate()).padStart(2, '0')}`;
-        
-        // 단어 상태 결정: new, learning, memorized
-        let status = 'learning';
-        if (interval <= 1) {
-          status = 'new';
-        } else if ((word.perfect_count || 0) >= 1 || interval >= 21) {
-          status = 'memorized';
-        }
         
         word.repetition = repetition;
         word.interval = interval;
@@ -681,12 +651,10 @@ function dbGetStats() {
       totalCount = words.length;
       words.forEach(w => {
         // 단어 상태 세분화 집계
-        const isNew = w.status === 'new' || (w.interval || 1) <= 1;
-        const isMemorized = w.status === 'memorized' || (w.perfect_count || 0) >= 1 || (w.interval || 1) >= 21;
-        
-        if (isNew) {
+        const status = w.status || 'new';
+        if (status === 'new') {
           newCount++;
-        } else if (isMemorized) {
+        } else if (status === 'memorized') {
           memorizedCount++;
           memorizedExposuresSum += (w.exposure_count || 0);
         } else {
@@ -2764,13 +2732,8 @@ function loadWordList() {
       // 2. Filter by status
       if (filter !== 'all') {
         filtered = filtered.filter(w => {
-          const isNew = w.status === 'new' || (w.interval || 1) <= 1;
-          const isMemorized = w.status === 'memorized' || (w.perfect_count || 0) >= 1 || (w.interval || 1) >= 21;
-          
-          if (filter === 'new') return isNew;
-          if (filter === 'learning') return !isNew && !isMemorized;
-          if (filter === 'memorized') return isMemorized;
-          return true;
+          const status = w.status || 'new';
+          return status === filter;
         });
       }
       
@@ -2806,13 +2769,12 @@ function renderWordList(words) {
     // Status label mapping
     let statusClass = 'new';
     let statusLabel = '처음본다';
-    const intervalVal = w.interval || 1;
-    const perfectCountVal = w.perfect_count || 0;
+    const status = w.status || 'new';
     
-    if (w.status === 'memorized' || perfectCountVal >= 1 || intervalVal >= 21) {
+    if (status === 'memorized') {
       statusClass = 'memorized';
       statusLabel = '완벽해';
-    } else if (w.status === 'learning' || intervalVal > 1) {
+    } else if (status === 'learning') {
       statusClass = 'learning';
       statusLabel = '암기중';
     }
